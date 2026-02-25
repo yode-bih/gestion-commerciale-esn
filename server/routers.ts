@@ -1,28 +1,211 @@
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
+import { z } from "zod";
+import * as db from "./db";
+import {
+  createMagicLink, verifyMagicLinkToken, loginWithPassword,
+  createAccountRequest, approveAccountRequest, rejectAccountRequest,
+  buildMagicLinkUrl, buildMagicLinkEmailHtml, isAutoApproved,
+} from "./emailAuth";
+import { sendEmail } from "./emailService";
+import {
+  fetchFunnelData, calculateLanding,
+} from "./nicokaService";
 
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
+
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    me: publicProcedure.query((opts) => opts.ctx.user),
+
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+
+    sendMagicLink: publicProcedure
+      .input(z.object({ email: z.string().email() }))
+      .mutation(async ({ input, ctx }) => {
+        try {
+          const { token } = await createMagicLink(input.email);
+          const magicLinkUrl = buildMagicLinkUrl(ctx.req, token);
+          const html = buildMagicLinkEmailHtml(magicLinkUrl);
+          await sendEmail({
+            to: input.email.toLowerCase().trim(),
+            subject: "Connexion à Funnel Commercial ESN",
+            html,
+          });
+          return { message: "Un lien de connexion a été envoyé à votre adresse email." };
+        } catch (error: any) {
+          if (error.message === "ACCOUNT_NOT_FOUND") {
+            return { error: "Aucun compte trouvé pour cette adresse. Demandez un accès à un administrateur." };
+          }
+          if (error.message === "ACCOUNT_PENDING") {
+            return { error: "Votre demande de compte est en attente d'approbation." };
+          }
+          throw error;
+        }
+      }),
+
+    verifyMagicLink: publicProcedure
+      .input(z.object({ token: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        try {
+          const { user, sessionToken } = await verifyMagicLinkToken(input.token);
+          const cookieOptions = getSessionCookieOptions(ctx.req);
+          ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+          return { success: true, user };
+        } catch (error: any) {
+          if (error.message === "INVALID_TOKEN") {
+            return { success: false, error: "Lien invalide ou déjà utilisé." };
+          }
+          if (error.message === "TOKEN_EXPIRED") {
+            return { success: false, error: "Ce lien a expiré. Veuillez en demander un nouveau." };
+          }
+          throw error;
+        }
+      }),
+
+    login: publicProcedure
+      .input(z.object({ email: z.string().email(), password: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        try {
+          const { user, sessionToken } = await loginWithPassword(input.email, input.password);
+          const cookieOptions = getSessionCookieOptions(ctx.req);
+          ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+          return { success: true, user };
+        } catch (error: any) {
+          if (error.message === "INVALID_CREDENTIALS" || error.message === "NO_PASSWORD_SET") {
+            return { success: false, error: "Identifiants invalides." };
+          }
+          if (error.message === "ACCOUNT_PENDING") {
+            return { success: false, error: "Votre compte est en attente d'approbation." };
+          }
+          throw error;
+        }
+      }),
+
+    requestAccount: publicProcedure
+      .input(z.object({ email: z.string().email(), name: z.string().min(2) }))
+      .mutation(async ({ input }) => {
+        try {
+          await createAccountRequest(input.email, input.name);
+          return { message: "Votre demande a été envoyée. Un administrateur la traitera prochainement." };
+        } catch (error: any) {
+          if (error.message === "REQUEST_ALREADY_EXISTS") {
+            return { error: "Une demande est déjà en cours pour cette adresse." };
+          }
+          if (error.message === "USER_ALREADY_EXISTS") {
+            return { error: "Un compte existe déjà pour cette adresse." };
+          }
+          throw error;
+        }
+      }),
+
+    checkAutoApprove: publicProcedure
+      .input(z.object({ email: z.string().email() }))
+      .query(({ input }) => {
+        return { autoApproved: isAutoApproved(input.email) };
+      }),
+  }),
+
+  funnel: router({
+    getData: protectedProcedure
+      .input(z.object({ year: z.number().optional() }).optional())
+      .query(async () => {
+        const funnelData = await fetchFunnelData();
+        const qWeights = await db.getQuotationWeights();
+        const oWeights = await db.getOpportunityWeights();
+        const quotationWeightsMap: Record<string, number> = {};
+        qWeights.forEach((w) => { quotationWeightsMap[w.statusId] = parseFloat(String(w.weight)); });
+        const opportunityWeightsMap: Record<string, number> = {};
+        oWeights.forEach((w) => { opportunityWeightsMap[w.statusId] = parseFloat(String(w.weight)); });
+        const landing = calculateLanding(funnelData, quotationWeightsMap, opportunityWeightsMap);
+        return {
+          ...landing,
+          quotations: funnelData.uniqueQuotations,
+          orders: funnelData.orders,
+          opportunities: funnelData.uniqueOpportunities,
+          allQuotations: funnelData.quotations,
+          allOpportunities: funnelData.opportunities,
+        };
+      }),
+
+    simulate: protectedProcedure
+      .input(z.object({
+        quotationWeights: z.record(z.string(), z.number()),
+        opportunityWeights: z.record(z.string(), z.number()),
+      }))
+      .mutation(async ({ input }) => {
+        const funnelData = await fetchFunnelData();
+        return calculateLanding(funnelData, input.quotationWeights, input.opportunityWeights);
+      }),
+
+    refresh: protectedProcedure.mutation(async () => {
+      const funnelData = await fetchFunnelData();
+      const qWeights = await db.getQuotationWeights();
+      const oWeights = await db.getOpportunityWeights();
+      const quotationWeightsMap: Record<string, number> = {};
+      qWeights.forEach((w) => { quotationWeightsMap[w.statusId] = parseFloat(String(w.weight)); });
+      const opportunityWeightsMap: Record<string, number> = {};
+      oWeights.forEach((w) => { opportunityWeightsMap[w.statusId] = parseFloat(String(w.weight)); });
+      const landing = calculateLanding(funnelData, quotationWeightsMap, opportunityWeightsMap);
       return {
-        success: true,
-      } as const;
+        ...landing,
+        quotations: funnelData.uniqueQuotations,
+        orders: funnelData.orders,
+        opportunities: funnelData.uniqueOpportunities,
+        allQuotations: funnelData.quotations,
+        allOpportunities: funnelData.opportunities,
+      };
     }),
   }),
 
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  admin: router({
+    getQuotationWeights: adminProcedure.query(async () => db.getQuotationWeights()),
+    upsertQuotationWeight: adminProcedure
+      .input(z.object({ statusId: z.string(), statusLabel: z.string(), weight: z.number().min(0).max(1), description: z.string().optional() }))
+      .mutation(async ({ input }) => {
+        await db.upsertQuotationWeight(input.statusId, input.statusLabel, input.weight, input.description);
+        return { success: true };
+      }),
+    getOpportunityWeights: adminProcedure.query(async () => db.getOpportunityWeights()),
+    upsertOpportunityWeight: adminProcedure
+      .input(z.object({ statusId: z.string(), statusLabel: z.string(), weight: z.number().min(0).max(1), description: z.string().optional() }))
+      .mutation(async ({ input }) => {
+        await db.upsertOpportunityWeight(input.statusId, input.statusLabel, input.weight, input.description);
+        return { success: true };
+      }),
+    getPendingRequests: adminProcedure.query(async () => db.getPendingAccountRequests()),
+    getAllRequests: adminProcedure.query(async () => db.getAllAccountRequests()),
+    approveRequest: adminProcedure
+      .input(z.object({ requestId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        await approveAccountRequest(input.requestId, ctx.user.id);
+        return { success: true };
+      }),
+    rejectRequest: adminProcedure
+      .input(z.object({ requestId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        await rejectAccountRequest(input.requestId, ctx.user.id);
+        return { success: true };
+      }),
+    getScenarios: adminProcedure.query(async () => db.getSimulationScenarios()),
+    createScenario: adminProcedure
+      .input(z.object({
+        name: z.string(), year: z.number(),
+        quotationWeightsOverride: z.record(z.string(), z.number()).optional(),
+        opportunityWeightsOverride: z.record(z.string(), z.number()).optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        await db.createSimulationScenario({ ...input, createdBy: ctx.user.id });
+        return { success: true };
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

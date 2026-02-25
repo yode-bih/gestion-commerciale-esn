@@ -1,6 +1,10 @@
-import { eq } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import {
+  InsertUser, users, magicLinks, accountRequests,
+  quotationStatusWeights, opportunityStatusWeights,
+  nicokaCache, simulationScenarios,
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +93,81 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// ─── Quotation Status Weights ───
+
+export async function getQuotationWeights() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(quotationStatusWeights).where(eq(quotationStatusWeights.active, true));
+}
+
+export async function upsertQuotationWeight(statusId: string, statusLabel: string, weight: number, description?: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(quotationStatusWeights).values({ statusId, statusLabel, weight: String(weight), description: description || null })
+    .onDuplicateKeyUpdate({ set: { statusLabel, weight: String(weight), description: description || null } });
+}
+
+// ─── Opportunity Status Weights ───
+
+export async function getOpportunityWeights() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(opportunityStatusWeights).where(eq(opportunityStatusWeights.active, true));
+}
+
+export async function upsertOpportunityWeight(statusId: string, statusLabel: string, weight: number, description?: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(opportunityStatusWeights).values({ statusId, statusLabel, weight: String(weight), description: description || null })
+    .onDuplicateKeyUpdate({ set: { statusLabel, weight: String(weight), description: description || null } });
+}
+
+// ─── Account Requests ───
+
+export async function getPendingAccountRequests() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(accountRequests).where(eq(accountRequests.status, "pending")).orderBy(desc(accountRequests.createdAt));
+}
+
+export async function getAllAccountRequests() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(accountRequests).orderBy(desc(accountRequests.createdAt));
+}
+
+// ─── Simulation Scenarios ───
+
+export async function getSimulationScenarios() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(simulationScenarios).orderBy(desc(simulationScenarios.updatedAt));
+}
+
+export async function createSimulationScenario(data: {
+  name: string; year: number; createdBy?: number;
+  quotationWeightsOverride?: any; opportunityWeightsOverride?: any; notes?: string;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(simulationScenarios).values(data);
+}
+
+// ─── Nicoka Cache ───
+
+export async function getCachedData(dataType: "quotations" | "orders" | "opportunities", year: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(nicokaCache)
+    .where(and(eq(nicokaCache.dataType, dataType), eq(nicokaCache.year, year)))
+    .orderBy(desc(nicokaCache.syncedAt)).limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+export async function setCachedData(dataType: "quotations" | "orders" | "opportunities", year: number, data: any) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(nicokaCache).where(and(eq(nicokaCache.dataType, dataType), eq(nicokaCache.year, year)));
+  await db.insert(nicokaCache).values({ dataType, year, data });
+}

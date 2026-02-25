@@ -5,14 +5,24 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import Login from "./pages/Login";
+import VerifyMagicLink from "./pages/VerifyMagicLink";
+import Landing from "./pages/Landing";
+import Simulation from "./pages/Simulation";
+import Weights from "./pages/Weights";
+import Requests from "./pages/Requests";
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
+      <Route path="/" component={Home} />
+      <Route path="/auth/login" component={Login} />
+      <Route path="/auth/verify" component={VerifyMagicLink} />
+      <Route path="/landing" component={Landing} />
+      <Route path="/simulation" component={Simulation} />
+      <Route path="/weights" component={Weights} />
+      <Route path="/requests" component={Requests} />
+      <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
   );
