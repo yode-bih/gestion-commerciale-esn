@@ -73,3 +73,7 @@
 ## Deployment
 - [ ] Push vers GitHub (yode-bih/gestion-commerciale-esn)
 - [ ] Configuration Vercel
+
+## Admin Users
+- [x] Ajouter yode.bih@rubix-consulting.com en admin
+- [x] Ajouter maxime.chatelain@rubix-consulting.com en admin
