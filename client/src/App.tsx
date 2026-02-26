@@ -11,6 +11,7 @@ import Landing from "./pages/Landing";
 import Simulation from "./pages/Simulation";
 import Weights from "./pages/Weights";
 import Requests from "./pages/Requests";
+import Settings from "./pages/Settings";
 
 function Router() {
   return (
@@ -22,6 +23,7 @@ function Router() {
       <Route path="/simulation" component={Simulation} />
       <Route path="/weights" component={Weights} />
       <Route path="/requests" component={Requests} />
+      <Route path="/settings" component={Settings} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

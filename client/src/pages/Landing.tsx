@@ -23,7 +23,7 @@ function LandingContent() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Détail de l'atterrissage</h1>
-        <p className="text-muted-foreground mt-1">Vue détaillée des commandes, devis et opportunités</p>
+        <p className="text-muted-foreground mt-1">Vue détaillée des commandes, devis et opportunités — Année {new Date().getFullYear()}</p>
       </div>
 
       <Tabs defaultValue="orders" className="w-full">
@@ -43,8 +43,9 @@ function LandingContent() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left">
-                      <th className="pb-3 font-medium text-muted-foreground">Réf.</th>
+                      <th className="pb-3 font-medium text-muted-foreground">Nom</th>
                       <th className="pb-3 font-medium text-muted-foreground">Client</th>
+                      <th className="pb-3 font-medium text-muted-foreground">Réf.</th>
                       <th className="pb-3 font-medium text-muted-foreground">Statut</th>
                       <th className="pb-3 font-medium text-muted-foreground text-right">Montant HT</th>
                       <th className="pb-3 font-medium text-muted-foreground text-right">Facturé</th>
@@ -55,8 +56,9 @@ function LandingContent() {
                   <tbody>
                     {data.orders.map((o: any) => (
                       <tr key={o.orderid} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
-                        <td className="py-3 font-mono text-xs">{o.uid || o.reference}</td>
+                        <td className="py-3 font-medium">{o.label || "-"}</td>
                         <td className="py-3">{o.customerLabel || `Client #${o.customerid}`}</td>
+                        <td className="py-3 font-mono text-xs">{o.uid || o.reference}</td>
                         <td className="py-3"><span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs">{o.statusLabel || o.status}</span></td>
                         <td className="py-3 text-right font-medium">{formatCurrency(o.gross_total)}</td>
                         <td className="py-3 text-right">{formatCurrency(o.total_invoiced)}</td>
@@ -66,7 +68,7 @@ function LandingContent() {
                     ))}
                   </tbody>
                 </table>
-                {data.orders.length === 0 && <p className="text-center text-muted-foreground py-8">Aucune commande</p>}
+                {data.orders.length === 0 && <p className="text-center text-muted-foreground py-8">Aucune commande pour cette année</p>}
               </div>
             </CardContent>
           </Card>
@@ -82,8 +84,9 @@ function LandingContent() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left">
-                      <th className="pb-3 font-medium text-muted-foreground">Réf.</th>
+                      <th className="pb-3 font-medium text-muted-foreground">Nom</th>
                       <th className="pb-3 font-medium text-muted-foreground">Client</th>
+                      <th className="pb-3 font-medium text-muted-foreground">Réf.</th>
                       <th className="pb-3 font-medium text-muted-foreground">Statut</th>
                       <th className="pb-3 font-medium text-muted-foreground text-right">Montant HT</th>
                       <th className="pb-3 font-medium text-muted-foreground">Date</th>
@@ -93,8 +96,9 @@ function LandingContent() {
                   <tbody>
                     {data.quotations.map((q: any) => (
                       <tr key={q.quotationid} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
-                        <td className="py-3 font-mono text-xs">{q.uid || q.reference}</td>
+                        <td className="py-3 font-medium">{q.label || "-"}</td>
                         <td className="py-3">{q.customerLabel || `Client #${q.customerid}`}</td>
+                        <td className="py-3 font-mono text-xs">{q.uid || q.reference}</td>
                         <td className="py-3"><span className="px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 text-xs">{q.statusLabel || q.status}</span></td>
                         <td className="py-3 text-right font-medium">{formatCurrency(q.gross_total)}</td>
                         <td className="py-3 text-muted-foreground">{q.date ? new Date(q.date).toLocaleDateString("fr-FR") : "-"}</td>
@@ -103,7 +107,7 @@ function LandingContent() {
                     ))}
                   </tbody>
                 </table>
-                {data.quotations.length === 0 && <p className="text-center text-muted-foreground py-8">Aucun devis sans commande</p>}
+                {data.quotations.length === 0 && <p className="text-center text-muted-foreground py-8">Aucun devis sans commande pour cette année</p>}
               </div>
             </CardContent>
           </Card>

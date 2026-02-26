@@ -71,9 +71,18 @@
 - [x] Tests vitest auth.logout
 
 ## Deployment
-- [ ] Push vers GitHub (yode-bih/gestion-commerciale-esn)
+- [x] Push vers GitHub (yode-bih/gestion-commerciale-esn)
 - [ ] Configuration Vercel
 
 ## Admin Users
 - [x] Ajouter yode.bih@rubix-consulting.com en admin
 - [x] Ajouter maxime.chatelain@rubix-consulting.com en admin
+
+## Améliorations demandées
+- [x] Filtrer commandes et devis par année en cours (2026) pour le calcul d'atterrissage
+- [x] Ajouter le nom de la commande/devis dans les tableaux
+- [x] Ajouter le nom du client dans les tableaux
+- [x] Afficher la description du statut (pas juste le code) dans les pondérations
+
+## Bugs
+- [x] Page Paramètres retourne 404 (route manquante dans App.tsx)

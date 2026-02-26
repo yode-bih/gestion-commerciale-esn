@@ -64,6 +64,7 @@ async function fetchAllPaginated(endpoint: string, params: Record<string, string
 export interface NicokaQuotation {
   quotationid: number;
   uid: string;
+  label: string;
   customerid: number;
   customerLabel?: string;
   projectid: number | null;
@@ -83,6 +84,7 @@ export interface NicokaQuotation {
 export interface NicokaOrder {
   orderid: number;
   uid: string;
+  label: string;
   customerid: number;
   customerLabel?: string;
   projectid: number | null;
@@ -133,6 +135,7 @@ export async function fetchQuotations(): Promise<NicokaQuotation[]> {
   return raw.map((q: any) => ({
     quotationid: q.quotationid,
     uid: q.uid || "",
+    label: q.label || q.title || q.name || q.uid || "",
     customerid: q.customerid,
     customerLabel: q.customerLabel || q.customer_label || "",
     projectid: q.projectid || null,
@@ -155,6 +158,7 @@ export async function fetchOrders(): Promise<NicokaOrder[]> {
   return raw.map((o: any) => ({
     orderid: o.orderid,
     uid: o.uid || "",
+    label: o.label || o.title || o.name || o.uid || "",
     customerid: o.customerid,
     customerLabel: o.customerLabel || o.customer_label || "",
     projectid: o.projectid || null,
@@ -213,38 +217,58 @@ export interface FunnelData {
   uniqueQuotations: NicokaQuotation[];
 }
 
-export async function fetchFunnelData(): Promise<FunnelData> {
+export async function fetchFunnelData(year?: number): Promise<FunnelData> {
   const [quotations, orders, opportunities] = await Promise.all([
     fetchQuotations(),
     fetchOrders(),
     fetchOpportunities(),
   ]);
 
-  // Dédoublonnage : IDs de devis qui ont une commande
+  // Filtrer par année en cours (commandes et devis)
+  const targetYear = year || new Date().getFullYear();
+  const filterByYear = (dateStr: string | null | undefined, periodStart: string | null | undefined, periodEnd: string | null | undefined): boolean => {
+    // Inclure si la période chevauche l'année cible
+    if (periodStart && periodEnd) {
+      const start = new Date(periodStart);
+      const end = new Date(periodEnd);
+      const yearStart = new Date(`${targetYear}-01-01`);
+      const yearEnd = new Date(`${targetYear}-12-31`);
+      return start <= yearEnd && end >= yearStart;
+    }
+    // Sinon, filtrer par la date du document
+    if (dateStr) {
+      const d = new Date(dateStr);
+      return d.getFullYear() === targetYear;
+    }
+    return true; // Inclure par défaut si pas de date
+  };
+
+  const filteredOrders = orders.filter((o) => filterByYear(o.date, o.period_start, o.period_end));
+  const filteredQuotations = quotations.filter((q) => filterByYear(q.date, q.period_start, q.period_end));
+
+  // Dédoublonnage : IDs de devis qui ont une commande (sur les commandes filtrées)
   const quotationIdsWithOrder = new Set(
-    orders.filter((o) => o.quotationid).map((o) => o.quotationid!)
+    filteredOrders.filter((o) => o.quotationid).map((o) => o.quotationid!)
   );
 
   // Dédoublonnage : IDs d'opportunités qui ont un devis ou une commande
   const opportunityIdsWithOrder = new Set(
-    orders.filter((o) => o.opid).map((o) => o.opid!)
+    filteredOrders.filter((o) => o.opid).map((o) => o.opid!)
   );
+  // Aussi exclure les opportunités qui ont un devis (même sans commande)
+  const opportunityIdsWithQuotation = new Set<number>(); // Pour l'instant, pas de lien direct opp→devis dans l'API
 
-  // On ne peut pas directement lier opportunités → devis via l'API standard
-  // On utilise les commandes comme pont : si une commande a un opid, l'opportunité est couverte
-  // Pour les devis, on vérifie s'ils ont une commande via quotationid
-
-  const uniqueQuotations = quotations.filter(
+  const uniqueQuotations = filteredQuotations.filter(
     (q) => !quotationIdsWithOrder.has(q.quotationid)
   );
 
   const uniqueOpportunities = opportunities.filter(
-    (op) => !opportunityIdsWithOrder.has(op.opid)
+    (op) => !opportunityIdsWithOrder.has(op.opid) && !opportunityIdsWithQuotation.has(op.opid)
   );
 
   return {
-    quotations,
-    orders,
+    quotations: filteredQuotations,
+    orders: filteredOrders,
     opportunities,
     uniqueOpportunities,
     uniqueQuotations,

@@ -62,20 +62,20 @@ function WeightsContent() {
               <DialogHeader><DialogTitle>Ajouter une pondération devis</DialogTitle></DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>ID Statut (Nicoka)</Label>
+                  <Label>Code statut Nicoka</Label>
                   <Input value={newQStatus.statusId} onChange={(e) => setNewQStatus(s => ({ ...s, statusId: e.target.value }))} placeholder="ex: 1, 2, 3..." />
                 </div>
                 <div className="space-y-2">
-                  <Label>Libellé</Label>
-                  <Input value={newQStatus.statusLabel} onChange={(e) => setNewQStatus(s => ({ ...s, statusLabel: e.target.value }))} placeholder="ex: En attente, Accepté..." />
+                  <Label>Description du statut</Label>
+                  <Input value={newQStatus.statusLabel} onChange={(e) => setNewQStatus(s => ({ ...s, statusLabel: e.target.value }))} placeholder="ex: En attente, Accepté, Refusé..." />
                 </div>
                 <div className="space-y-2">
                   <Label>Pondération (0 à 1)</Label>
                   <Input type="number" min="0" max="1" step="0.05" value={newQStatus.weight} onChange={(e) => setNewQStatus(s => ({ ...s, weight: e.target.value }))} />
                 </div>
                 <div className="space-y-2">
-                  <Label>Description (optionnel)</Label>
-                  <Input value={newQStatus.description} onChange={(e) => setNewQStatus(s => ({ ...s, description: e.target.value }))} />
+                  <Label>Notes (optionnel)</Label>
+                  <Input value={newQStatus.description} onChange={(e) => setNewQStatus(s => ({ ...s, description: e.target.value }))} placeholder="Remarques sur ce statut..." />
                 </div>
                 <Button className="w-full" onClick={() => {
                   upsertQ.mutate({
@@ -98,10 +98,10 @@ function WeightsContent() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left">
-                  <th className="pb-3 font-medium text-muted-foreground">ID</th>
-                  <th className="pb-3 font-medium text-muted-foreground">Libellé</th>
+                  <th className="pb-3 font-medium text-muted-foreground">Description du statut</th>
+                  <th className="pb-3 font-medium text-muted-foreground">Code</th>
                   <th className="pb-3 font-medium text-muted-foreground">Pondération</th>
-                  <th className="pb-3 font-medium text-muted-foreground">Description</th>
+                  <th className="pb-3 font-medium text-muted-foreground">Notes</th>
                   <th className="pb-3 font-medium text-muted-foreground">Actions</th>
                 </tr>
               </thead>
@@ -131,20 +131,20 @@ function WeightsContent() {
               <DialogHeader><DialogTitle>Ajouter une pondération opportunité</DialogTitle></DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>ID Étape (Nicoka)</Label>
+                  <Label>Code étape Nicoka</Label>
                   <Input value={newOStatus.statusId} onChange={(e) => setNewOStatus(s => ({ ...s, statusId: e.target.value }))} placeholder="ex: 1, 2, 3..." />
                 </div>
                 <div className="space-y-2">
-                  <Label>Libellé</Label>
-                  <Input value={newOStatus.statusLabel} onChange={(e) => setNewOStatus(s => ({ ...s, statusLabel: e.target.value }))} placeholder="ex: Prospection, Qualification..." />
+                  <Label>Description de l'étape</Label>
+                  <Input value={newOStatus.statusLabel} onChange={(e) => setNewOStatus(s => ({ ...s, statusLabel: e.target.value }))} placeholder="ex: Prospection, Qualification, Négociation..." />
                 </div>
                 <div className="space-y-2">
                   <Label>Pondération (0 à 1)</Label>
                   <Input type="number" min="0" max="1" step="0.05" value={newOStatus.weight} onChange={(e) => setNewOStatus(s => ({ ...s, weight: e.target.value }))} />
                 </div>
                 <div className="space-y-2">
-                  <Label>Description (optionnel)</Label>
-                  <Input value={newOStatus.description} onChange={(e) => setNewOStatus(s => ({ ...s, description: e.target.value }))} />
+                  <Label>Notes (optionnel)</Label>
+                  <Input value={newOStatus.description} onChange={(e) => setNewOStatus(s => ({ ...s, description: e.target.value }))} placeholder="Remarques sur cette étape..." />
                 </div>
                 <Button className="w-full" onClick={() => {
                   upsertO.mutate({
@@ -167,10 +167,10 @@ function WeightsContent() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left">
-                  <th className="pb-3 font-medium text-muted-foreground">ID</th>
-                  <th className="pb-3 font-medium text-muted-foreground">Libellé</th>
+                  <th className="pb-3 font-medium text-muted-foreground">Description de l'étape</th>
+                  <th className="pb-3 font-medium text-muted-foreground">Code</th>
                   <th className="pb-3 font-medium text-muted-foreground">Pondération</th>
-                  <th className="pb-3 font-medium text-muted-foreground">Description</th>
+                  <th className="pb-3 font-medium text-muted-foreground">Notes</th>
                   <th className="pb-3 font-medium text-muted-foreground">Actions</th>
                 </tr>
               </thead>
@@ -194,8 +194,8 @@ function WeightRow({ weight, onSave }: { weight: any; onSave: (w: number) => voi
 
   return (
     <tr className="border-b border-border/50 hover:bg-muted/30 transition-colors">
-      <td className="py-3 font-mono text-xs">{weight.statusId}</td>
-      <td className="py-3">{weight.statusLabel}</td>
+      <td className="py-3 font-medium">{weight.statusLabel || `Statut ${weight.statusId}`}</td>
+      <td className="py-3 font-mono text-xs text-muted-foreground">{weight.statusId}</td>
       <td className="py-3">
         {editing ? (
           <div className="flex items-center gap-2">

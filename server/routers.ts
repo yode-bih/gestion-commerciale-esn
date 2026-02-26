@@ -115,8 +115,9 @@ export const appRouter = router({
   funnel: router({
     getData: protectedProcedure
       .input(z.object({ year: z.number().optional() }).optional())
-      .query(async () => {
-        const funnelData = await fetchFunnelData();
+      .query(async ({ input }) => {
+        const year = input?.year || new Date().getFullYear();
+        const funnelData = await fetchFunnelData(year);
         const qWeights = await db.getQuotationWeights();
         const oWeights = await db.getOpportunityWeights();
         const quotationWeightsMap: Record<string, number> = {};
@@ -138,14 +139,19 @@ export const appRouter = router({
       .input(z.object({
         quotationWeights: z.record(z.string(), z.number()),
         opportunityWeights: z.record(z.string(), z.number()),
+        year: z.number().optional(),
       }))
       .mutation(async ({ input }) => {
-        const funnelData = await fetchFunnelData();
+        const year = input.year || new Date().getFullYear();
+        const funnelData = await fetchFunnelData(year);
         return calculateLanding(funnelData, input.quotationWeights, input.opportunityWeights);
       }),
 
-    refresh: protectedProcedure.mutation(async () => {
-      const funnelData = await fetchFunnelData();
+    refresh: protectedProcedure
+      .input(z.object({ year: z.number().optional() }).optional())
+      .mutation(async ({ input }) => {
+      const year = input?.year || new Date().getFullYear();
+      const funnelData = await fetchFunnelData(year);
       const qWeights = await db.getQuotationWeights();
       const oWeights = await db.getOpportunityWeights();
       const quotationWeightsMap: Record<string, number> = {};
