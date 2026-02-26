@@ -156,7 +156,7 @@ export async function createSimulationScenario(data: {
 
 // ─── Nicoka Cache ───
 
-export async function getCachedData(dataType: "quotations" | "orders" | "opportunities", year: number) {
+export async function getCachedData(dataType: "quotations" | "orders" | "opportunities" | "customers" | "projects" | "funnel_snapshot", year: number) {
   const db = await getDb();
   if (!db) return null;
   const result = await db.select().from(nicokaCache)
@@ -165,9 +165,18 @@ export async function getCachedData(dataType: "quotations" | "orders" | "opportu
   return result.length > 0 ? result[0] : null;
 }
 
-export async function setCachedData(dataType: "quotations" | "orders" | "opportunities", year: number, data: any) {
+export async function setCachedData(dataType: "quotations" | "orders" | "opportunities" | "customers" | "projects" | "funnel_snapshot", year: number, data: any) {
   const db = await getDb();
   if (!db) return;
   await db.delete(nicokaCache).where(and(eq(nicokaCache.dataType, dataType), eq(nicokaCache.year, year)));
   await db.insert(nicokaCache).values({ dataType, year, data });
+}
+
+export async function getLastSyncDate(year: number): Promise<Date | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select({ syncedAt: nicokaCache.syncedAt }).from(nicokaCache)
+    .where(and(eq(nicokaCache.dataType, "funnel_snapshot"), eq(nicokaCache.year, year)))
+    .orderBy(desc(nicokaCache.syncedAt)).limit(1);
+  return result.length > 0 ? result[0].syncedAt : null;
 }

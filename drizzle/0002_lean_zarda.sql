@@ -1,0 +1,1 @@
+ALTER TABLE `nicoka_cache` MODIFY COLUMN `dataType` enum('quotations','orders','opportunities','customers','projects','funnel_snapshot') NOT NULL;

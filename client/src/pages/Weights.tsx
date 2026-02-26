@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Save, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -16,6 +17,7 @@ function formatPercent(value: string | number): string {
 function WeightsContent() {
   const { data: qWeights, isLoading: qLoading } = trpc.admin.getQuotationWeights.useQuery();
   const { data: oWeights, isLoading: oLoading } = trpc.admin.getOpportunityWeights.useQuery();
+  const { data: statusMaps } = trpc.statusMaps.getAll.useQuery();
   const utils = trpc.useUtils();
 
   const upsertQ = trpc.admin.upsertQuotationWeight.useMutation({
@@ -32,6 +34,18 @@ function WeightsContent() {
   const [qDialogOpen, setQDialogOpen] = useState(false);
   const [oDialogOpen, setODialogOpen] = useState(false);
 
+  // Statuts déjà configurés
+  const configuredQStatuses = new Set((qWeights || []).map((w: any) => w.statusId));
+  const configuredOStatuses = new Set((oWeights || []).map((w: any) => w.statusId));
+
+  // Statuts disponibles (non encore configurés)
+  const availableQStatuses = statusMaps
+    ? Object.entries(statusMaps.quotationStatuses).filter(([code]) => !configuredQStatuses.has(code))
+    : [];
+  const availableOStages = statusMaps
+    ? Object.entries(statusMaps.opportunityStages).filter(([code]) => !configuredOStatuses.has(code))
+    : [];
+
   if (qLoading || oLoading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -44,7 +58,7 @@ function WeightsContent() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Pondérations</h1>
-        <p className="text-muted-foreground mt-1">Configurez les coefficients de pondération par statut</p>
+        <p className="text-muted-foreground mt-1">Configurez les coefficients de pondération par statut pour le calcul d'atterrissage</p>
       </div>
 
       {/* Quotation weights */}
@@ -62,25 +76,39 @@ function WeightsContent() {
               <DialogHeader><DialogTitle>Ajouter une pondération devis</DialogTitle></DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Code statut Nicoka</Label>
-                  <Input value={newQStatus.statusId} onChange={(e) => setNewQStatus(s => ({ ...s, statusId: e.target.value }))} placeholder="ex: 1, 2, 3..." />
-                </div>
-                <div className="space-y-2">
-                  <Label>Description du statut</Label>
-                  <Input value={newQStatus.statusLabel} onChange={(e) => setNewQStatus(s => ({ ...s, statusLabel: e.target.value }))} placeholder="ex: En attente, Accepté, Refusé..." />
+                  <Label>Statut Nicoka</Label>
+                  {availableQStatuses.length > 0 ? (
+                    <Select value={newQStatus.statusId} onValueChange={(val) => {
+                      const label = statusMaps?.quotationStatuses[parseInt(val)] || val;
+                      setNewQStatus(s => ({ ...s, statusId: val, statusLabel: label }));
+                    }}>
+                      <SelectTrigger><SelectValue placeholder="Sélectionner un statut..." /></SelectTrigger>
+                      <SelectContent>
+                        {availableQStatuses.map(([code, label]) => (
+                          <SelectItem key={code} value={code}>{label} (code {code})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="space-y-2">
+                      <Input value={newQStatus.statusId} onChange={(e) => setNewQStatus(s => ({ ...s, statusId: e.target.value }))} placeholder="Code statut..." />
+                      <Input value={newQStatus.statusLabel} onChange={(e) => setNewQStatus(s => ({ ...s, statusLabel: e.target.value }))} placeholder="Description..." />
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Pondération (0 à 1)</Label>
                   <Input type="number" min="0" max="1" step="0.05" value={newQStatus.weight} onChange={(e) => setNewQStatus(s => ({ ...s, weight: e.target.value }))} />
+                  <p className="text-xs text-muted-foreground">0 = non comptabilisé, 0.5 = 50%, 1 = 100%</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Notes (optionnel)</Label>
                   <Input value={newQStatus.description} onChange={(e) => setNewQStatus(s => ({ ...s, description: e.target.value }))} placeholder="Remarques sur ce statut..." />
                 </div>
-                <Button className="w-full" onClick={() => {
+                <Button className="w-full" disabled={!newQStatus.statusId} onClick={() => {
                   upsertQ.mutate({
                     statusId: newQStatus.statusId,
-                    statusLabel: newQStatus.statusLabel,
+                    statusLabel: newQStatus.statusLabel || `Statut ${newQStatus.statusId}`,
                     weight: parseFloat(newQStatus.weight),
                     description: newQStatus.description || undefined,
                   });
@@ -121,7 +149,7 @@ function WeightsContent() {
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle className="text-base">Pondération des opportunités</CardTitle>
-            <CardDescription>Coefficient appliqué au montant selon l'étape de l'opportunité</CardDescription>
+            <CardDescription>Coefficient appliqué au montant selon l'étape de vente de l'opportunité</CardDescription>
           </div>
           <Dialog open={oDialogOpen} onOpenChange={setODialogOpen}>
             <DialogTrigger asChild>
@@ -131,25 +159,39 @@ function WeightsContent() {
               <DialogHeader><DialogTitle>Ajouter une pondération opportunité</DialogTitle></DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Code étape Nicoka</Label>
-                  <Input value={newOStatus.statusId} onChange={(e) => setNewOStatus(s => ({ ...s, statusId: e.target.value }))} placeholder="ex: 1, 2, 3..." />
-                </div>
-                <div className="space-y-2">
-                  <Label>Description de l'étape</Label>
-                  <Input value={newOStatus.statusLabel} onChange={(e) => setNewOStatus(s => ({ ...s, statusLabel: e.target.value }))} placeholder="ex: Prospection, Qualification, Négociation..." />
+                  <Label>Étape de vente Nicoka</Label>
+                  {availableOStages.length > 0 ? (
+                    <Select value={newOStatus.statusId} onValueChange={(val) => {
+                      const label = statusMaps?.opportunityStages[parseInt(val)] || val;
+                      setNewOStatus(s => ({ ...s, statusId: val, statusLabel: label }));
+                    }}>
+                      <SelectTrigger><SelectValue placeholder="Sélectionner une étape..." /></SelectTrigger>
+                      <SelectContent>
+                        {availableOStages.map(([code, label]) => (
+                          <SelectItem key={code} value={code}>{label} (code {code})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="space-y-2">
+                      <Input value={newOStatus.statusId} onChange={(e) => setNewOStatus(s => ({ ...s, statusId: e.target.value }))} placeholder="Code étape..." />
+                      <Input value={newOStatus.statusLabel} onChange={(e) => setNewOStatus(s => ({ ...s, statusLabel: e.target.value }))} placeholder="Description..." />
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Pondération (0 à 1)</Label>
                   <Input type="number" min="0" max="1" step="0.05" value={newOStatus.weight} onChange={(e) => setNewOStatus(s => ({ ...s, weight: e.target.value }))} />
+                  <p className="text-xs text-muted-foreground">0 = non comptabilisé, 0.5 = 50%, 1 = 100%</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Notes (optionnel)</Label>
                   <Input value={newOStatus.description} onChange={(e) => setNewOStatus(s => ({ ...s, description: e.target.value }))} placeholder="Remarques sur cette étape..." />
                 </div>
-                <Button className="w-full" onClick={() => {
+                <Button className="w-full" disabled={!newOStatus.statusId} onClick={() => {
                   upsertO.mutate({
                     statusId: newOStatus.statusId,
-                    statusLabel: newOStatus.statusLabel,
+                    statusLabel: newOStatus.statusLabel || `Étape ${newOStatus.statusId}`,
                     weight: parseFloat(newOStatus.weight),
                     description: newOStatus.description || undefined,
                   });

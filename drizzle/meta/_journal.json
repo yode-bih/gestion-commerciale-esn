@@ -15,6 +15,13 @@
       "when": 1772060423699,
       "tag": "0001_stale_microchip",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1772149338249,
+      "tag": "0002_lean_zarda",
+      "breakpoints": true
     }
   ]
 }

@@ -72,7 +72,7 @@ export type OpportunityStatusWeight = typeof opportunityStatusWeights.$inferSele
 // ─── Nicoka Sync Cache (cache des données Nicoka pour performance) ───
 export const nicokaCache = mysqlTable("nicoka_cache", {
   id: int("id").autoincrement().primaryKey(),
-  dataType: mysqlEnum("dataType", ["quotations", "orders", "opportunities"]).notNull(),
+  dataType: mysqlEnum("dataType", ["quotations", "orders", "opportunities", "customers", "projects", "funnel_snapshot"]).notNull(),
   year: int("year").notNull(),
   data: json("data").notNull(),
   syncedAt: timestamp("syncedAt").defaultNow().notNull(),

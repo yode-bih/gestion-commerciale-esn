@@ -12,7 +12,57 @@ import {
 import { sendEmail } from "./emailService";
 import {
   fetchFunnelData, calculateLanding,
+  QUOTATION_STATUS_MAP, ORDER_STATUS_MAP, OPPORTUNITY_STAGE_MAP, OPPORTUNITY_TYPE_MAP,
 } from "./nicokaService";
+import type { FunnelData } from "./nicokaService";
+
+// ─── Cache helper : serve from DB, fetch from Nicoka in background ───
+
+const CACHE_MAX_AGE = 30 * 60 * 1000; // 30 minutes
+
+async function getFunnelDataCached(year: number): Promise<{ data: any; lastSync: Date | null; fromCache: boolean }> {
+  // Try cache first
+  const cached = await db.getCachedData("funnel_snapshot", year);
+  if (cached && cached.data) {
+    const age = Date.now() - new Date(cached.syncedAt).getTime();
+    if (age < CACHE_MAX_AGE) {
+      return { data: cached.data, lastSync: cached.syncedAt, fromCache: true };
+    }
+  }
+
+  // Cache miss or stale: fetch from Nicoka
+  const result = await fetchAndCacheFunnelData(year);
+  return { data: result, lastSync: new Date(), fromCache: false };
+}
+
+async function fetchAndCacheFunnelData(year: number) {
+  const funnelData = await fetchFunnelData(year);
+  const qWeights = await db.getQuotationWeights();
+  const oWeights = await db.getOpportunityWeights();
+  const quotationWeightsMap: Record<string, number> = {};
+  qWeights.forEach((w) => { quotationWeightsMap[w.statusId] = parseFloat(String(w.weight)); });
+  const opportunityWeightsMap: Record<string, number> = {};
+  oWeights.forEach((w) => { opportunityWeightsMap[w.statusId] = parseFloat(String(w.weight)); });
+  const landing = calculateLanding(funnelData, quotationWeightsMap, opportunityWeightsMap);
+
+  const result = {
+    ...landing,
+    quotations: funnelData.uniqueQuotations,
+    orders: funnelData.orders,
+    opportunities: funnelData.uniqueOpportunities,
+    allQuotations: funnelData.quotations,
+    allOpportunities: funnelData.opportunities,
+  };
+
+  // Save to cache
+  try {
+    await db.setCachedData("funnel_snapshot", year, result);
+  } catch (e) {
+    console.warn("[Cache] Failed to save funnel snapshot:", e);
+  }
+
+  return result;
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -112,27 +162,41 @@ export const appRouter = router({
       }),
   }),
 
+  statusMaps: router({
+    getAll: publicProcedure.query(() => ({
+      quotationStatuses: QUOTATION_STATUS_MAP,
+      orderStatuses: ORDER_STATUS_MAP,
+      opportunityStages: OPPORTUNITY_STAGE_MAP,
+      opportunityTypes: OPPORTUNITY_TYPE_MAP,
+    })),
+  }),
+
   funnel: router({
+    // getData sert les données depuis le cache DB — chargement instantané
     getData: protectedProcedure
       .input(z.object({ year: z.number().optional() }).optional())
       .query(async ({ input }) => {
         const year = input?.year || new Date().getFullYear();
-        const funnelData = await fetchFunnelData(year);
-        const qWeights = await db.getQuotationWeights();
-        const oWeights = await db.getOpportunityWeights();
-        const quotationWeightsMap: Record<string, number> = {};
-        qWeights.forEach((w) => { quotationWeightsMap[w.statusId] = parseFloat(String(w.weight)); });
-        const opportunityWeightsMap: Record<string, number> = {};
-        oWeights.forEach((w) => { opportunityWeightsMap[w.statusId] = parseFloat(String(w.weight)); });
-        const landing = calculateLanding(funnelData, quotationWeightsMap, opportunityWeightsMap);
-        return {
-          ...landing,
-          quotations: funnelData.uniqueQuotations,
-          orders: funnelData.orders,
-          opportunities: funnelData.uniqueOpportunities,
-          allQuotations: funnelData.quotations,
-          allOpportunities: funnelData.opportunities,
-        };
+        const { data, lastSync, fromCache } = await getFunnelDataCached(year);
+        return { ...data, lastSync, fromCache };
+      }),
+
+    // sync force un rechargement depuis l'API Nicoka et met à jour le cache
+    sync: protectedProcedure
+      .input(z.object({ year: z.number().optional() }).optional())
+      .mutation(async ({ input }) => {
+        const year = input?.year || new Date().getFullYear();
+        const result = await fetchAndCacheFunnelData(year);
+        return { ...result, lastSync: new Date(), fromCache: false };
+      }),
+
+    // lastSync retourne la date du dernier sync
+    lastSync: protectedProcedure
+      .input(z.object({ year: z.number().optional() }).optional())
+      .query(async ({ input }) => {
+        const year = input?.year || new Date().getFullYear();
+        const lastSync = await db.getLastSyncDate(year);
+        return { lastSync };
       }),
 
     simulate: protectedProcedure
@@ -146,28 +210,6 @@ export const appRouter = router({
         const funnelData = await fetchFunnelData(year);
         return calculateLanding(funnelData, input.quotationWeights, input.opportunityWeights);
       }),
-
-    refresh: protectedProcedure
-      .input(z.object({ year: z.number().optional() }).optional())
-      .mutation(async ({ input }) => {
-      const year = input?.year || new Date().getFullYear();
-      const funnelData = await fetchFunnelData(year);
-      const qWeights = await db.getQuotationWeights();
-      const oWeights = await db.getOpportunityWeights();
-      const quotationWeightsMap: Record<string, number> = {};
-      qWeights.forEach((w) => { quotationWeightsMap[w.statusId] = parseFloat(String(w.weight)); });
-      const opportunityWeightsMap: Record<string, number> = {};
-      oWeights.forEach((w) => { opportunityWeightsMap[w.statusId] = parseFloat(String(w.weight)); });
-      const landing = calculateLanding(funnelData, quotationWeightsMap, opportunityWeightsMap);
-      return {
-        ...landing,
-        quotations: funnelData.uniqueQuotations,
-        orders: funnelData.orders,
-        opportunities: funnelData.uniqueOpportunities,
-        allQuotations: funnelData.quotations,
-        allOpportunities: funnelData.opportunities,
-      };
-    }),
   }),
 
   admin: router({

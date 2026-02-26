@@ -1,10 +1,83 @@
 /**
  * Service d'intégration API Nicoka
  * Récupère devis, commandes et opportunités avec rate limiting
+ * Enrichit les données avec noms clients, projets et labels de statuts
  */
 
 const RATE_LIMIT_DELAY = 100; // ms entre chaque appel
 const RETRY_DELAY = 500; // ms en cas de 429
+
+// ─── Mappings de statuts (depuis api.nicoka.com/page_SALES et page_CRM) ───
+
+export const QUOTATION_STATUS_MAP: Record<number, string> = {
+  1: "Nouveau",
+  2: "Ouvert",
+  3: "Brouillon",
+  4: "Publié",
+  5: "Auto validé",
+  6: "Facturé",
+  9: "Refusé",
+  12: "Envoyé au client",
+  13: "En attente validation interne",
+  14: "A transmettre au client",
+  15: "En cours",
+  16: "Accepté",
+  17: "Expiré",
+  18: "Lu",
+  90: "Envoyé en signature",
+  91: "Signé",
+  92: "Signature refusée",
+  100: "Terminé",
+  101: "Perdu",
+  102: "Annulé",
+};
+
+export const ORDER_STATUS_MAP: Record<number, string> = {
+  1: "Brouillon",
+  2: "Envoyé pour validation",
+  3: "Annulé",
+  4: "Validé",
+  5: "Auto validé",
+  6: "Facturé",
+  7: "Payé",
+  8: "Paiement Partiel",
+  9: "Refusé",
+  10: "Révision",
+  11: "Remboursement effectué",
+  12: "Envoyé au client",
+  13: "En attente validation interne",
+  14: "A transmettre au client",
+  15: "En cours",
+  16: "Accepté",
+  17: "Expiré",
+  18: "Lu",
+  20: "En Att. de paiement",
+  21: "Partiellement Facturé",
+  89: "Envoyé au PDP",
+  90: "Envoyé en signature",
+  91: "Signé",
+  92: "Signature refusée",
+  99: "Relance pour impayé",
+  100: "Terminé",
+  101: "Perdu",
+  102: "Annulé",
+};
+
+export const OPPORTUNITY_STAGE_MAP: Record<number, string> = {
+  1: "Qualification",
+  2: "Besoin d'info.",
+  3: "Proposition",
+  4: "Négociation",
+  5: "Gagné",
+  99: "Perdu",
+  100: "Annulé",
+};
+
+export const OPPORTUNITY_TYPE_MAP: Record<number, string> = {
+  1: "Business Existant",
+  2: "Nouveau Business",
+  3: "Consulting",
+};
 
 function getBaseUrl(): string {
   const subdomain = process.env.NICOKA_SUBDOMAIN || "rubix-consulting";
@@ -59,6 +132,75 @@ async function fetchAllPaginated(endpoint: string, params: Record<string, string
   return allData;
 }
 
+// ─── Fetch customers for name resolution ───
+
+interface NicokaCustomer {
+  customerid: number;
+  label: string;
+  name1: string;
+  name2: string;
+  accountNumber: string;
+}
+
+// Cache clients en mémoire pour éviter de les recharger à chaque appel
+let _customersCache: Map<number, NicokaCustomer> | null = null;
+let _customersCacheTime = 0;
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+async function fetchCustomers(): Promise<Map<number, NicokaCustomer>> {
+  const now = Date.now();
+  if (_customersCache && (now - _customersCacheTime) < CACHE_TTL) {
+    return _customersCache;
+  }
+
+  const raw = await fetchAllPaginated("/customers");
+  const map = new Map<number, NicokaCustomer>();
+  for (const c of raw) {
+    map.set(c.customerid, {
+      customerid: c.customerid,
+      label: c.label || c.name1 || "",
+      name1: c.name1 || "",
+      name2: c.name2 || "",
+      accountNumber: c.account_number || "",
+    });
+  }
+  _customersCache = map;
+  _customersCacheTime = now;
+  return map;
+}
+
+// ─── Fetch projects for enrichment ───
+
+interface NicokaProject {
+  projectid: number;
+  label: string;
+  customerid: number;
+}
+
+// Cache projets
+let _projectsCache: Map<number, NicokaProject> | null = null;
+let _projectsCacheTime = 0;
+
+async function fetchProjects(): Promise<Map<number, NicokaProject>> {
+  const now = Date.now();
+  if (_projectsCache && (now - _projectsCacheTime) < CACHE_TTL) {
+    return _projectsCache;
+  }
+
+  const raw = await fetchAllPaginated("/projects");
+  const map = new Map<number, NicokaProject>();
+  for (const p of raw) {
+    map.set(p.projectid, {
+      projectid: p.projectid,
+      label: p.label || "",
+      customerid: p.customerid,
+    });
+  }
+  _projectsCache = map;
+  _projectsCacheTime = now;
+  return map;
+}
+
 // ─── Public API ───
 
 export interface NicokaQuotation {
@@ -66,11 +208,12 @@ export interface NicokaQuotation {
   uid: string;
   label: string;
   customerid: number;
-  customerLabel?: string;
+  customerName: string;
+  accountNumber: string;
   projectid: number | null;
   reference: string;
-  status: string;
-  statusLabel?: string;
+  status: number;
+  statusLabel: string;
   gross_total: number;
   grand_total: number;
   date: string;
@@ -79,6 +222,7 @@ export interface NicokaQuotation {
   period_end: string | null;
   employeeid: number | null;
   assign_to_name: string | null;
+  opid: number | null;
 }
 
 export interface NicokaOrder {
@@ -86,13 +230,15 @@ export interface NicokaOrder {
   uid: string;
   label: string;
   customerid: number;
-  customerLabel?: string;
+  customerName: string;
+  accountNumber: string;
   projectid: number | null;
+  projectLabel: string;
   quotationid: number | null;
   opid: number | null;
-  reference: number;
-  status: string;
-  statusLabel?: string;
+  reference: string;
+  status: number;
+  statusLabel: string;
   gross_total: number;
   grand_total: number;
   total_invoiced: number;
@@ -101,17 +247,18 @@ export interface NicokaOrder {
   signature_date: string | null;
   period_start: string | null;
   period_end: string | null;
+  assign_to_name: string | null;
 }
 
 export interface NicokaOpportunity {
   opid: number;
   label: string;
-  type: string;
-  typeLabel?: string;
-  stage: string;
-  stageLabel?: string;
+  type: number;
+  typeLabel: string;
+  stage: number;
+  stageLabel: string;
   customerid: number;
-  customerLabel?: string;
+  customerName: string;
   amount: number;
   probability: number | null;
   close_date: string | null;
@@ -130,76 +277,92 @@ function parseNumber(val: any): number {
   return isNaN(parsed) ? 0 : parsed;
 }
 
-export async function fetchQuotations(): Promise<NicokaQuotation[]> {
+export async function fetchQuotations(customersMap: Map<number, NicokaCustomer>): Promise<NicokaQuotation[]> {
   const raw = await fetchAllPaginated("/quotations");
-  return raw.map((q: any) => ({
-    quotationid: q.quotationid,
-    uid: q.uid || "",
-    label: q.label || q.title || q.name || q.uid || "",
-    customerid: q.customerid,
-    customerLabel: q.customerLabel || q.customer_label || "",
-    projectid: q.projectid || null,
-    reference: q.reference || "",
-    status: String(q.status || ""),
-    statusLabel: q.statusLabel || q.status_label || "",
-    gross_total: parseNumber(q.gross_total),
-    grand_total: parseNumber(q.grand_total),
-    date: q.date || "",
-    signature_date: q.signature_date || null,
-    period_start: q.period_start || null,
-    period_end: q.period_end || null,
-    employeeid: q.employeeid || null,
-    assign_to_name: q.assign_to_name || null,
-  }));
+  return raw.map((q: any) => {
+    const customer = customersMap.get(q.customerid);
+    return {
+      quotationid: q.quotationid,
+      uid: q.uid || "",
+      label: q.label || q.reference || "",
+      customerid: q.customerid,
+      customerName: customer?.label || "",
+      accountNumber: customer?.accountNumber || "",
+      projectid: q.projectid || null,
+      reference: q.reference || "",
+      status: parseInt(String(q.status || 0)),
+      statusLabel: QUOTATION_STATUS_MAP[parseInt(String(q.status || 0))] || `Statut ${q.status}`,
+      gross_total: parseNumber(q.gross_total),
+      grand_total: parseNumber(q.grand_total),
+      date: q.date || "",
+      signature_date: q.signature_date || null,
+      period_start: q.period_start || null,
+      period_end: q.period_end || null,
+      employeeid: q.employeeid || null,
+      assign_to_name: q.assign_to_name || null,
+      opid: q.opid || null,
+    };
+  });
 }
 
-export async function fetchOrders(): Promise<NicokaOrder[]> {
+export async function fetchOrders(customersMap: Map<number, NicokaCustomer>, projectsMap: Map<number, NicokaProject>): Promise<NicokaOrder[]> {
   const raw = await fetchAllPaginated("/orders");
-  return raw.map((o: any) => ({
-    orderid: o.orderid,
-    uid: o.uid || "",
-    label: o.label || o.title || o.name || o.uid || "",
-    customerid: o.customerid,
-    customerLabel: o.customerLabel || o.customer_label || "",
-    projectid: o.projectid || null,
-    quotationid: o.quotationid || null,
-    opid: o.opid || null,
-    reference: o.reference,
-    status: String(o.status || ""),
-    statusLabel: o.statusLabel || o.status_label || "",
-    gross_total: parseNumber(o.gross_total),
-    grand_total: parseNumber(o.grand_total),
-    total_invoiced: parseNumber(o.total_invoiced),
-    still_to_invoice: parseNumber(o.still_to_invoice),
-    date: o.date || "",
-    signature_date: o.signature_date || null,
-    period_start: o.period_start || null,
-    period_end: o.period_end || null,
-  }));
+  return raw.map((o: any) => {
+    const customer = customersMap.get(o.customerid);
+    const projectId = o.projectid || null;
+    const project = projectId ? projectsMap.get(projectId) : null;
+    return {
+      orderid: o.orderid,
+      uid: o.uid || "",
+      label: o.label || o.reference || "",
+      customerid: o.customerid,
+      customerName: customer?.label || "",
+      accountNumber: customer?.accountNumber || "",
+      projectid: projectId,
+      projectLabel: project?.label || "",
+      quotationid: o.quotationid || null,
+      opid: o.opid || null,
+      reference: String(o.reference || ""),
+      status: parseInt(String(o.status || 0)),
+      statusLabel: ORDER_STATUS_MAP[parseInt(String(o.status || 0))] || `Statut ${o.status}`,
+      gross_total: parseNumber(o.gross_total),
+      grand_total: parseNumber(o.grand_total),
+      total_invoiced: parseNumber(o.total_invoiced),
+      still_to_invoice: parseNumber(o.still_to_invoice),
+      date: o.date || "",
+      signature_date: o.signature_date || null,
+      period_start: o.period_start || null,
+      period_end: o.period_end || null,
+      assign_to_name: o.assign_to_name || null,
+    };
+  });
 }
 
-export async function fetchOpportunities(): Promise<NicokaOpportunity[]> {
+export async function fetchOpportunities(customersMap: Map<number, NicokaCustomer>): Promise<NicokaOpportunity[]> {
   const raw = await fetchAllPaginated("/opportunities");
-  return raw.map((op: any) => ({
-    opid: op.opid,
-    label: op.label || "",
-    type: String(op.type || ""),
-    typeLabel: op.typeLabel || op.type_label || "",
-    stage: String(op.stage || ""),
-    stageLabel: op.stageLabel || op.stage_label || "",
-    customerid: op.customerid,
-    customerLabel: op.customerLabel || op.customer_label || "",
-    amount: parseNumber(op.amount),
-    probability: op.probability !== null ? parseNumber(op.probability) : null,
-    close_date: op.close_date || null,
-    quantity: op.quantity !== null ? parseNumber(op.quantity) : null,
-    price: op.price !== null ? parseNumber(op.price) : null,
-    cost: op.cost !== null ? parseNumber(op.cost) : null,
-    margin: op.margin !== null ? parseNumber(op.margin) : null,
-    assign_to_name: op.assign_to_name || null,
-    period_start: op.period_start || null,
-    period_end: op.period_end || null,
-  }));
+  return raw.map((op: any) => {
+    const customer = customersMap.get(op.customerid);
+    return {
+      opid: op.opid,
+      label: op.label || "",
+      type: parseInt(String(op.type || 0)),
+      typeLabel: OPPORTUNITY_TYPE_MAP[parseInt(String(op.type || 0))] || `Type ${op.type}`,
+      stage: parseInt(String(op.stage || 0)),
+      stageLabel: OPPORTUNITY_STAGE_MAP[parseInt(String(op.stage || 0))] || `Étape ${op.stage}`,
+      customerid: op.customerid,
+      customerName: customer?.label || "",
+      amount: parseNumber(op.amount),
+      probability: op.probability !== null ? parseNumber(op.probability) : null,
+      close_date: op.close_date || null,
+      quantity: op.quantity !== null ? parseNumber(op.quantity) : null,
+      price: op.price !== null ? parseNumber(op.price) : null,
+      cost: op.cost !== null ? parseNumber(op.cost) : null,
+      margin: op.margin !== null ? parseNumber(op.margin) : null,
+      assign_to_name: op.assign_to_name || null,
+      period_start: op.period_start || null,
+      period_end: op.period_end || null,
+    };
+  });
 }
 
 /**
@@ -211,23 +374,29 @@ export interface FunnelData {
   quotations: NicokaQuotation[];
   orders: NicokaOrder[];
   opportunities: NicokaOpportunity[];
-  // Opportunités dédoublonnées (sans devis ni commande)
+  allQuotations: NicokaQuotation[];
+  allOrders: NicokaOrder[];
   uniqueOpportunities: NicokaOpportunity[];
-  // Devis dédoublonnés (sans commande associée)
   uniqueQuotations: NicokaQuotation[];
 }
 
 export async function fetchFunnelData(year?: number): Promise<FunnelData> {
+  // Fetch reference data first (customers + projects)
+  const [customersMap, projectsMap] = await Promise.all([
+    fetchCustomers(),
+    fetchProjects(),
+  ]);
+
+  // Fetch business data with enrichment
   const [quotations, orders, opportunities] = await Promise.all([
-    fetchQuotations(),
-    fetchOrders(),
-    fetchOpportunities(),
+    fetchQuotations(customersMap),
+    fetchOrders(customersMap, projectsMap),
+    fetchOpportunities(customersMap),
   ]);
 
   // Filtrer par année en cours (commandes et devis)
   const targetYear = year || new Date().getFullYear();
   const filterByYear = (dateStr: string | null | undefined, periodStart: string | null | undefined, periodEnd: string | null | undefined): boolean => {
-    // Inclure si la période chevauche l'année cible
     if (periodStart && periodEnd) {
       const start = new Date(periodStart);
       const end = new Date(periodEnd);
@@ -235,28 +404,30 @@ export async function fetchFunnelData(year?: number): Promise<FunnelData> {
       const yearEnd = new Date(`${targetYear}-12-31`);
       return start <= yearEnd && end >= yearStart;
     }
-    // Sinon, filtrer par la date du document
     if (dateStr) {
       const d = new Date(dateStr);
       return d.getFullYear() === targetYear;
     }
-    return true; // Inclure par défaut si pas de date
+    return true;
   };
 
   const filteredOrders = orders.filter((o) => filterByYear(o.date, o.period_start, o.period_end));
   const filteredQuotations = quotations.filter((q) => filterByYear(q.date, q.period_start, q.period_end));
 
-  // Dédoublonnage : IDs de devis qui ont une commande (sur les commandes filtrées)
+  // Dédoublonnage : IDs de devis qui ont une commande
   const quotationIdsWithOrder = new Set(
     filteredOrders.filter((o) => o.quotationid).map((o) => o.quotationid!)
   );
 
-  // Dédoublonnage : IDs d'opportunités qui ont un devis ou une commande
+  // Dédoublonnage : IDs d'opportunités qui ont une commande
   const opportunityIdsWithOrder = new Set(
     filteredOrders.filter((o) => o.opid).map((o) => o.opid!)
   );
-  // Aussi exclure les opportunités qui ont un devis (même sans commande)
-  const opportunityIdsWithQuotation = new Set<number>(); // Pour l'instant, pas de lien direct opp→devis dans l'API
+
+  // IDs d'opportunités qui ont un devis (même sans commande)
+  const opportunityIdsWithQuotation = new Set(
+    filteredQuotations.filter((q) => q.opid).map((q) => q.opid!)
+  );
 
   const uniqueQuotations = filteredQuotations.filter(
     (q) => !quotationIdsWithOrder.has(q.quotationid)
@@ -270,25 +441,22 @@ export async function fetchFunnelData(year?: number): Promise<FunnelData> {
     quotations: filteredQuotations,
     orders: filteredOrders,
     opportunities,
+    allQuotations: quotations,
+    allOrders: orders,
     uniqueOpportunities,
     uniqueQuotations,
   };
 }
 
 export interface LandingCalculation {
-  // Montants certains (commandes)
   ordersTotal: number;
   ordersInvoiced: number;
   ordersRemaining: number;
-  // Montants pondérés (devis uniques)
   quotationsWeightedTotal: number;
   quotationsRawTotal: number;
-  // Montants pondérés (opportunités uniques)
   opportunitiesWeightedTotal: number;
   opportunitiesRawTotal: number;
-  // Atterrissage total
   landingTotal: number;
-  // Détails par catégorie
   orderCount: number;
   quotationCount: number;
   opportunityCount: number;
@@ -301,24 +469,23 @@ export function calculateLanding(
 ): LandingCalculation {
   const { orders, uniqueQuotations, uniqueOpportunities } = funnelData;
 
-  // Commandes (certaines)
   const ordersTotal = orders.reduce((sum, o) => sum + o.gross_total, 0);
   const ordersInvoiced = orders.reduce((sum, o) => sum + o.total_invoiced, 0);
   const ordersRemaining = orders.reduce((sum, o) => sum + o.still_to_invoice, 0);
 
-  // Devis pondérés
   const quotationsRawTotal = uniqueQuotations.reduce((sum, q) => sum + q.gross_total, 0);
   const quotationsWeightedTotal = uniqueQuotations.reduce((sum, q) => {
-    const weight = quotationWeights[q.status] ?? 0.5;
+    const weight = quotationWeights[String(q.status)] ?? 0.5;
     return sum + q.gross_total * weight;
   }, 0);
 
-  // Opportunités pondérées
   const opportunitiesRawTotal = uniqueOpportunities.reduce((sum, op) => sum + op.amount, 0);
   const opportunitiesWeightedTotal = uniqueOpportunities.reduce((sum, op) => {
-    const weight = opportunityWeights[op.stage] ?? 0.3;
+    const weight = opportunityWeights[String(op.stage)] ?? 0.3;
     return sum + op.amount * weight;
   }, 0);
+
+  const landingTotal = ordersTotal + quotationsWeightedTotal + opportunitiesWeightedTotal;
 
   return {
     ordersTotal,
@@ -328,7 +495,7 @@ export function calculateLanding(
     quotationsRawTotal,
     opportunitiesWeightedTotal,
     opportunitiesRawTotal,
-    landingTotal: ordersTotal + quotationsWeightedTotal + opportunitiesWeightedTotal,
+    landingTotal,
     orderCount: orders.length,
     quotationCount: uniqueQuotations.length,
     opportunityCount: uniqueOpportunities.length,

@@ -86,3 +86,33 @@
 
 ## Bugs
 - [x] Page Paramètres retourne 404 (route manquante dans App.tsx)
+
+## Recherche statuts Nicoka
+- [x] Rechercher les codes et descriptions des statuts de devis dans la doc API Nicoka
+- [x] Rechercher les codes et descriptions des statuts d'opportunités dans la doc API Nicoka
+- [x] Rechercher les codes et descriptions des statuts de commandes dans la doc API Nicoka
+- [x] Pré-remplir les tables de pondération avec les statuts trouvés
+
+## Corrections affichage et filtres
+- [x] Afficher le vrai nom du client (pas le code/ID) dans les tableaux devis et commandes
+- [x] Ajouter le numéro de compte client dans les tableaux
+- [x] Ajouter le titre du devis dans le tableau devis
+- [x] Ajouter le projet rattaché dans le tableau commandes
+- [x] Ajouter tri et filtre par client dans les tableaux
+- [x] Ajouter tri et filtre par statut dans les tableaux
+
+## Cache et performance
+- [x] Stocker les données Nicoka en cache DB pour chargement instantané
+- [x] Sync manuelle (bouton) et automatique des données Nicoka
+- [x] Chargement fluide sans appels API systématiques
+
+## Graphique funnel entonnoir
+- [x] Graphique en entonnoir visuel (Opportunités → Devis → Commandes → Réel)
+- [x] Visualisation de la réduction progressive du pipeline
+
+## Filtres avancés état de l'art
+- [x] Filtres multi-select par client
+- [ ] Filtres par commercial (à implémenter)
+- [ ] Filtres par période (date range) (à implémenter)
+- [x] Filtres par statut
+- [x] Recherche dans les filtres
