@@ -94,3 +94,29 @@ export const simulationScenarios = mysqlTable("simulation_scenarios", {
 });
 
 export type SimulationScenario = typeof simulationScenarios.$inferSelect;
+
+// ─── Saved Simulations (résultats sauvegardés avec paramètres) ───
+export const savedSimulations = mysqlTable("saved_simulations", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  year: int("year").notNull(),
+  createdBy: int("createdBy").notNull(),
+  // Paramètres de la simulation
+  quotationWeights: json("quotationWeights").notNull(), // { statusId: weight }
+  opportunityWeights: json("opportunityWeights").notNull(), // { statusId: weight }
+  // Résultats calculés
+  totalAtterrissage: decimal("totalAtterrissage", { precision: 15, scale: 2 }).notNull(),
+  totalCommandes: decimal("totalCommandes", { precision: 15, scale: 2 }).notNull(),
+  totalDevisPondere: decimal("totalDevisPondere", { precision: 15, scale: 2 }).notNull(),
+  totalOpportunitePondere: decimal("totalOpportunitePondere", { precision: 15, scale: 2 }).notNull(),
+  totalDevisBrut: decimal("totalDevisBrut", { precision: 15, scale: 2 }).notNull(),
+  totalOpportuniteBrut: decimal("totalOpportuniteBrut", { precision: 15, scale: 2 }).notNull(),
+  nbCommandes: int("nbCommandes").notNull(),
+  nbDevis: int("nbDevis").notNull(),
+  nbOpportunites: int("nbOpportunites").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type SavedSimulation = typeof savedSimulations.$inferSelect;
+export type InsertSavedSimulation = typeof savedSimulations.$inferInsert;

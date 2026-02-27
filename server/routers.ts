@@ -277,6 +277,60 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
+
+  simulation: router({
+    list: protectedProcedure.query(async () => {
+      return db.getSavedSimulations();
+    }),
+
+    save: protectedProcedure
+      .input(z.object({
+        name: z.string().min(1).max(255),
+        year: z.number(),
+        quotationWeights: z.record(z.string(), z.number()),
+        opportunityWeights: z.record(z.string(), z.number()),
+        totalAtterrissage: z.number(),
+        totalCommandes: z.number(),
+        totalDevisPondere: z.number(),
+        totalOpportunitePondere: z.number(),
+        totalDevisBrut: z.number(),
+        totalOpportuniteBrut: z.number(),
+        nbCommandes: z.number(),
+        nbDevis: z.number(),
+        nbOpportunites: z.number(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const id = await db.createSavedSimulation({
+          name: input.name,
+          year: input.year,
+          createdBy: ctx.user.id,
+          quotationWeights: input.quotationWeights,
+          opportunityWeights: input.opportunityWeights,
+          totalAtterrissage: String(input.totalAtterrissage),
+          totalCommandes: String(input.totalCommandes),
+          totalDevisPondere: String(input.totalDevisPondere),
+          totalOpportunitePondere: String(input.totalOpportunitePondere),
+          totalDevisBrut: String(input.totalDevisBrut),
+          totalOpportuniteBrut: String(input.totalOpportuniteBrut),
+          nbCommandes: input.nbCommandes,
+          nbDevis: input.nbDevis,
+          nbOpportunites: input.nbOpportunites,
+          notes: input.notes || null,
+        });
+        return { success: true, id };
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const deleted = await db.deleteSavedSimulation(input.id, ctx.user.id);
+        if (!deleted) {
+          throw new Error("Simulation introuvable ou acc\u00e8s refus\u00e9.");
+        }
+        return { success: true };
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

@@ -1,0 +1,20 @@
+CREATE TABLE `saved_simulations` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`name` varchar(255) NOT NULL,
+	`year` int NOT NULL,
+	`createdBy` int NOT NULL,
+	`quotationWeights` json NOT NULL,
+	`opportunityWeights` json NOT NULL,
+	`totalAtterrissage` decimal(15,2) NOT NULL,
+	`totalCommandes` decimal(15,2) NOT NULL,
+	`totalDevisPondere` decimal(15,2) NOT NULL,
+	`totalOpportunitePondere` decimal(15,2) NOT NULL,
+	`totalDevisBrut` decimal(15,2) NOT NULL,
+	`totalOpportuniteBrut` decimal(15,2) NOT NULL,
+	`nbCommandes` int NOT NULL,
+	`nbDevis` int NOT NULL,
+	`nbOpportunites` int NOT NULL,
+	`notes` text,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `saved_simulations_id` PRIMARY KEY(`id`)
+);

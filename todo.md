@@ -124,3 +124,13 @@
 - [x] Page "En attente d'approbation" pour les utilisateurs non encore approuvés
 - [x] Page admin Demandes : approuver/refuser les demandes d'accès + gestion complète des utilisateurs
 - [x] Vérifier que yode.bih@rubix-consulting.com et maxime.chatelain@rubix-consulting.com sont bien admins
+
+## Sauvegarde des simulations
+- [x] Table saved_simulations en DB (nom, paramètres JSON, résultats JSON, date, userId)
+- [x] Route tRPC pour sauvegarder une simulation
+- [x] Route tRPC pour lister les simulations sauvegardées
+- [x] Route tRPC pour supprimer une simulation
+- [x] Bouton sauvegarder sur la page Simulation
+- [x] Liste des simulations sauvegardées avec possibilité de restaurer les paramètres
+- [x] Affichage des résultats sauvegardés pour comparaison
+- [x] Tests vitest pour les routes de simulation

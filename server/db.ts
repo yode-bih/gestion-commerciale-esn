@@ -3,7 +3,8 @@ import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users, magicLinks, accountRequests,
   quotationStatusWeights, opportunityStatusWeights,
-  nicokaCache, simulationScenarios,
+  nicokaCache, simulationScenarios, savedSimulations,
+  type InsertSavedSimulation,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -207,4 +208,54 @@ export async function getLastSyncDate(year: number): Promise<Date | null> {
     .where(and(eq(nicokaCache.dataType, "funnel_snapshot"), eq(nicokaCache.year, year)))
     .orderBy(desc(nicokaCache.syncedAt)).limit(1);
   return result.length > 0 ? result[0].syncedAt : null;
+}
+
+// ─── Saved Simulations ───
+
+export async function getSavedSimulations(userId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const query = db.select({
+    id: savedSimulations.id,
+    name: savedSimulations.name,
+    year: savedSimulations.year,
+    createdBy: savedSimulations.createdBy,
+    quotationWeights: savedSimulations.quotationWeights,
+    opportunityWeights: savedSimulations.opportunityWeights,
+    totalAtterrissage: savedSimulations.totalAtterrissage,
+    totalCommandes: savedSimulations.totalCommandes,
+    totalDevisPondere: savedSimulations.totalDevisPondere,
+    totalOpportunitePondere: savedSimulations.totalOpportunitePondere,
+    totalDevisBrut: savedSimulations.totalDevisBrut,
+    totalOpportuniteBrut: savedSimulations.totalOpportuniteBrut,
+    nbCommandes: savedSimulations.nbCommandes,
+    nbDevis: savedSimulations.nbDevis,
+    nbOpportunites: savedSimulations.nbOpportunites,
+    notes: savedSimulations.notes,
+    createdAt: savedSimulations.createdAt,
+    creatorName: users.name,
+    creatorEmail: users.email,
+  }).from(savedSimulations)
+    .leftJoin(users, eq(savedSimulations.createdBy, users.id))
+    .orderBy(desc(savedSimulations.createdAt));
+  return query;
+}
+
+export async function createSavedSimulation(data: InsertSavedSimulation) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(savedSimulations).values(data);
+  return result[0].insertId;
+}
+
+export async function deleteSavedSimulation(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return false;
+  // Vérifier que l'utilisateur est le créateur ou un admin
+  const sim = await db.select().from(savedSimulations).where(eq(savedSimulations.id, id)).limit(1);
+  if (sim.length === 0) return false;
+  const user = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (sim[0].createdBy !== userId && user[0]?.role !== 'admin') return false;
+  await db.delete(savedSimulations).where(eq(savedSimulations.id, id));
+  return true;
 }
