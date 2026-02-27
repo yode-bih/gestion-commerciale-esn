@@ -241,6 +241,29 @@ export const appRouter = router({
         await rejectAccountRequest(input.requestId, ctx.user.id);
         return { success: true };
       }),
+    // ─── User management ───
+    getAllUsers: adminProcedure.query(async () => db.getAllUsers()),
+    toggleUserApproval: adminProcedure
+      .input(z.object({ userId: z.number(), approved: z.boolean() }))
+      .mutation(async ({ input, ctx }) => {
+        // Empêcher un admin de se révoquer lui-même
+        if (input.userId === ctx.user.id && !input.approved) {
+          throw new Error("Vous ne pouvez pas révoquer votre propre accès.");
+        }
+        await db.toggleUserApproval(input.userId, input.approved);
+        return { success: true };
+      }),
+    updateUserRole: adminProcedure
+      .input(z.object({ userId: z.number(), role: z.enum(["user", "admin"]) }))
+      .mutation(async ({ input, ctx }) => {
+        // Empêcher un admin de se retirer le rôle admin
+        if (input.userId === ctx.user.id && input.role !== "admin") {
+          throw new Error("Vous ne pouvez pas retirer votre propre rôle admin.");
+        }
+        await db.updateUserRole(input.userId, input.role);
+        return { success: true };
+      }),
+
     getScenarios: adminProcedure.query(async () => db.getSimulationScenarios()),
     createScenario: adminProcedure
       .input(z.object({

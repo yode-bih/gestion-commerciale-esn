@@ -19,9 +19,10 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Settings, TrendingUp, SlidersHorizontal, UserCheck, BarChart3 } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Settings, TrendingUp, SlidersHorizontal, UserCheck, BarChart3, Clock, ShieldAlert } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -50,7 +51,7 @@ export default function DashboardLayout({
     const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
   });
-  const { loading, user } = useAuth();
+  const { loading, user, logout } = useAuth();
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
@@ -63,6 +64,44 @@ export default function DashboardLayout({
   if (!user) {
     window.location.href = "/auth/login";
     return <DashboardLayoutSkeleton />;
+  }
+
+  // Utilisateur connecté mais non approuvé → page d'attente
+  if (!user.approved) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4">
+        <Card className="w-full max-w-md shadow-xl border-0 bg-card/80 backdrop-blur-sm">
+          <CardHeader className="text-center space-y-4">
+            <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-100 flex items-center justify-center">
+              <Clock className="h-8 w-8 text-amber-600" />
+            </div>
+            <CardTitle className="text-2xl font-semibold">Accès en attente</CardTitle>
+            <CardDescription className="text-base">
+              Votre compte <strong>{user.email}</strong> est en attente d'approbation par un administrateur.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+              <div className="flex items-start gap-2">
+                <ShieldAlert className="h-5 w-5 mt-0.5 shrink-0" />
+                <p>Seules les personnes autorisées par un administrateur peuvent accéder à cette application. Votre demande sera traitée prochainement.</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                logout();
+                window.location.href = "/auth/login";
+              }}
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              Se déconnecter
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (

@@ -137,6 +137,34 @@ export async function getAllAccountRequests() {
   return db.select().from(accountRequests).orderBy(desc(accountRequests.createdAt));
 }
 
+// ─── User Management (admin) ───
+
+export async function getAllUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: users.id,
+    name: users.name,
+    email: users.email,
+    role: users.role,
+    approved: users.approved,
+    createdAt: users.createdAt,
+    lastSignedIn: users.lastSignedIn,
+  }).from(users).orderBy(desc(users.createdAt));
+}
+
+export async function toggleUserApproval(userId: number, approved: boolean) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ approved }).where(eq(users.id, userId));
+}
+
+export async function updateUserRole(userId: number, role: "user" | "admin") {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ role }).where(eq(users.id, userId));
+}
+
 // ─── Simulation Scenarios ───
 
 export async function getSimulationScenarios() {

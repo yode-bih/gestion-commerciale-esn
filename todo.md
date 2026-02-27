@@ -116,3 +116,11 @@
 - [ ] Filtres par période (date range) (à implémenter)
 - [x] Filtres par statut
 - [x] Recherche dans les filtres
+
+## Contrôle d'accès renforcé
+- [x] Seules les personnes approuvées par un admin peuvent accéder à l'application
+- [x] Les utilisateurs @rubix-consulting.com sont auto-approuvés mais doivent quand même être enregistrés
+- [x] Les utilisateurs externes doivent faire une demande d'accès approuvée par un admin
+- [x] Page "En attente d'approbation" pour les utilisateurs non encore approuvés
+- [x] Page admin Demandes : approuver/refuser les demandes d'accès + gestion complète des utilisateurs
+- [x] Vérifier que yode.bih@rubix-consulting.com et maxime.chatelain@rubix-consulting.com sont bien admins
