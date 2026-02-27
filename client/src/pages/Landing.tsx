@@ -51,7 +51,27 @@ function useSortableTable<T>(items: T[], defaultField?: SortField) {
 }
 
 function LandingContent() {
-  const { data, isLoading } = trpc.funnel.getData.useQuery(undefined, { staleTime: 5 * 60 * 1000 });
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [selectedQuarter, setSelectedQuarter] = useState<string>("all");
+  const quarterParam = selectedQuarter === "all" ? undefined : parseInt(selectedQuarter);
+
+  const years = useMemo(() => {
+    const result = [];
+    for (let y = currentYear - 1; y <= currentYear + 3; y++) result.push(y);
+    return result;
+  }, [currentYear]);
+
+  const periodLabel = useMemo(() => {
+    const qLabels: Record<string, string> = { "1": "Q1", "2": "Q2", "3": "Q3", "4": "Q4" };
+    if (selectedQuarter === "all") return `${selectedYear}`;
+    return `${qLabels[selectedQuarter]} ${selectedYear}`;
+  }, [selectedYear, selectedQuarter]);
+
+  const { data, isLoading } = trpc.funnel.getData.useQuery(
+    { year: selectedYear, quarter: quarterParam },
+    { staleTime: 5 * 60 * 1000 }
+  );
 
   // Filtres commandes
   const [orderClientFilter, setOrderClientFilter] = useState("");
@@ -132,9 +152,35 @@ function LandingContent() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Détail de l'atterrissage</h1>
-        <p className="text-muted-foreground mt-1">Vue détaillée des commandes, devis et opportunités — Année {new Date().getFullYear()}</p>
+      <div className="flex items-start justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Détail de l'atterrissage</h1>
+          <p className="text-muted-foreground mt-1">Vue détaillée des commandes, devis et opportunités — {periodLabel}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(parseInt(v))}>
+            <SelectTrigger className="w-[120px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {years.map((y) => (
+                <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={selectedQuarter} onValueChange={setSelectedQuarter}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Année complète</SelectItem>
+              <SelectItem value="1">Q1 (Jan–Mar)</SelectItem>
+              <SelectItem value="2">Q2 (Avr–Jun)</SelectItem>
+              <SelectItem value="3">Q3 (Jul–Sep)</SelectItem>
+              <SelectItem value="4">Q4 (Oct–Déc)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <Tabs defaultValue="orders" className="w-full">

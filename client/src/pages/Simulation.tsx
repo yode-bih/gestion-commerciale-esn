@@ -17,6 +17,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Play, RotateCcw, Save, History, Trash2, Upload, Calendar, User } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { toast } from "sonner";
@@ -33,7 +34,21 @@ function formatDate(date: string | Date): string {
 }
 
 function SimulationContent() {
-  const { data, isLoading } = trpc.funnel.getData.useQuery(undefined, { staleTime: 5 * 60 * 1000 });
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [selectedQuarter, setSelectedQuarter] = useState<string>("all");
+  const quarterParam = selectedQuarter === "all" ? undefined : parseInt(selectedQuarter);
+
+  const years = useMemo(() => {
+    const result = [];
+    for (let y = currentYear - 1; y <= currentYear + 3; y++) result.push(y);
+    return result;
+  }, [currentYear]);
+
+  const { data, isLoading } = trpc.funnel.getData.useQuery(
+    { year: selectedYear, quarter: quarterParam },
+    { staleTime: 5 * 60 * 1000 }
+  );
   const savedSimulations = trpc.simulation.list.useQuery(undefined, { staleTime: 30 * 1000 });
   const utils = trpc.useUtils();
 
@@ -54,7 +69,7 @@ function SimulationContent() {
     const map = new Map<string, string>();
     data.allOpportunities.forEach((o: any) => {
       if (o.stage && !map.has(String(o.stage))) {
-        map.set(String(o.stage), o.stageLabel || `\u00c9tape ${o.stage}`);
+        map.set(String(o.stage), o.stageLabel || `Étape ${o.stage}`);
       }
     });
     return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
@@ -70,14 +85,14 @@ function SimulationContent() {
   const simulate = trpc.funnel.simulate.useMutation({
     onSuccess: (result) => {
       setSimResult(result);
-      toast.success("Simulation termin\u00e9e");
+      toast.success("Simulation terminée");
     },
     onError: (err) => toast.error(err.message),
   });
 
   const saveSimulation = trpc.simulation.save.useMutation({
     onSuccess: () => {
-      toast.success("Simulation sauvegard\u00e9e");
+      toast.success("Simulation sauvegardée");
       setSaveDialogOpen(false);
       setSaveName("");
       setSaveNotes("");
@@ -88,7 +103,7 @@ function SimulationContent() {
 
   const deleteSimulation = trpc.simulation.delete.useMutation({
     onSuccess: () => {
-      toast.success("Simulation supprim\u00e9e");
+      toast.success("Simulation supprimée");
       utils.simulation.list.invalidate();
     },
     onError: (err) => toast.error(err.message),
@@ -106,6 +121,8 @@ function SimulationContent() {
     simulate.mutate({
       quotationWeights: qWeights,
       opportunityWeights: oWeights,
+      year: selectedYear,
+      quarter: quarterParam,
     });
   };
 
@@ -119,7 +136,7 @@ function SimulationContent() {
     if (!simResult || !saveName.trim()) return;
     saveSimulation.mutate({
       name: saveName.trim(),
-      year: new Date().getFullYear(),
+      year: selectedYear,
       quotationWeights: qWeights,
       opportunityWeights: oWeights,
       totalAtterrissage: simResult.landingTotal,
@@ -141,7 +158,7 @@ function SimulationContent() {
     setQWeights(qw || {});
     setOWeights(ow || {});
     setSimResult(null);
-    toast.info(`Param\u00e8tres de "${sim.name}" restaur\u00e9s. Lancez la simulation pour recalculer.`);
+    toast.info(`Paramètres de "${sim.name}" restaurés. Lancez la simulation pour recalculer.`);
   };
 
   const comparisonData = simResult ? [
@@ -163,9 +180,35 @@ function SimulationContent() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Simulation</h1>
-        <p className="text-muted-foreground mt-1">Testez diff\u00e9rents sc\u00e9narios de pond\u00e9ration et sauvegardez-les</p>
+      <div className="flex items-start justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Simulation</h1>
+          <p className="text-muted-foreground mt-1">Testez différents scénarios de pondération et sauvegardez-les</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(parseInt(v))}>
+            <SelectTrigger className="w-[120px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {years.map((y) => (
+                <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={selectedQuarter} onValueChange={setSelectedQuarter}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Année complète</SelectItem>
+              <SelectItem value="1">Q1 (Jan–Mar)</SelectItem>
+              <SelectItem value="2">Q2 (Avr–Jun)</SelectItem>
+              <SelectItem value="3">Q3 (Jul–Sep)</SelectItem>
+              <SelectItem value="4">Q4 (Oct–Déc)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <Tabs defaultValue="simulate" className="w-full">
@@ -185,11 +228,11 @@ function SimulationContent() {
             {/* Quotation weights */}
             <Card className="border-0 shadow-sm">
               <CardHeader>
-                <CardTitle className="text-base">Pond\u00e9ration des devis</CardTitle>
+                <CardTitle className="text-base">Pondération des devis</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {quotationStatuses.length === 0 && (
-                  <p className="text-sm text-muted-foreground">Aucun statut de devis trouv\u00e9</p>
+                  <p className="text-sm text-muted-foreground">Aucun statut de devis trouvé</p>
                 )}
                 {quotationStatuses.map((s) => (
                   <div key={s.id} className="space-y-2">
@@ -212,11 +255,11 @@ function SimulationContent() {
             {/* Opportunity weights */}
             <Card className="border-0 shadow-sm">
               <CardHeader>
-                <CardTitle className="text-base">Pond\u00e9ration des opportunit\u00e9s</CardTitle>
+                <CardTitle className="text-base">Pondération des opportunités</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {opportunityStatuses.length === 0 && (
-                  <p className="text-sm text-muted-foreground">Aucun statut d'opportunit\u00e9 trouv\u00e9</p>
+                  <p className="text-sm text-muted-foreground">Aucun statut d'opportunité trouvé</p>
                 )}
                 {opportunityStatuses.map((s) => (
                   <div key={s.id} className="space-y-2">
@@ -245,7 +288,7 @@ function SimulationContent() {
             </Button>
             <Button variant="outline" onClick={handleReset}>
               <RotateCcw className="h-4 w-4 mr-2" />
-              R\u00e9initialiser
+              Réinitialiser
             </Button>
             {simResult && (
               <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
@@ -259,14 +302,14 @@ function SimulationContent() {
                   <DialogHeader>
                     <DialogTitle>Sauvegarder la simulation</DialogTitle>
                     <DialogDescription>
-                      Donnez un nom \u00e0 cette simulation pour la retrouver facilement.
+                      Donnez un nom à cette simulation pour la retrouver facilement.
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 py-4">
                     <div className="space-y-2">
                       <Label>Nom de la simulation</Label>
                       <Input
-                        placeholder="Ex: Sc\u00e9nario optimiste Q1 2026"
+                        placeholder="Ex: Scénario optimiste Q1 2026"
                         value={saveName}
                         onChange={(e) => setSaveName(e.target.value)}
                       />
@@ -274,7 +317,7 @@ function SimulationContent() {
                     <div className="space-y-2">
                       <Label>Notes (optionnel)</Label>
                       <Textarea
-                        placeholder="D\u00e9crivez les hypoth\u00e8ses de cette simulation..."
+                        placeholder="Décrivez les hypothèses de cette simulation..."
                         value={saveNotes}
                         onChange={(e) => setSaveNotes(e.target.value)}
                         rows={3}
@@ -291,11 +334,11 @@ function SimulationContent() {
                           <span>{formatCurrency(simResult.ordersTotal)}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">Devis pond\u00e9r\u00e9</span>
+                          <span className="text-muted-foreground">Devis pondéré</span>
                           <span>{formatCurrency(simResult.quotationsWeightedTotal)}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">Opportunit\u00e9s pond\u00e9r\u00e9</span>
+                          <span className="text-muted-foreground">Opportunités pondéré</span>
                           <span>{formatCurrency(simResult.opportunitiesWeightedTotal)}</span>
                         </div>
                       </CardContent>
@@ -319,7 +362,7 @@ function SimulationContent() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Card className="border-0 shadow-sm bg-gradient-to-br from-primary/5 to-primary/10">
                   <CardContent className="pt-6">
-                    <p className="text-sm text-muted-foreground">Atterrissage simul\u00e9</p>
+                    <p className="text-sm text-muted-foreground">Atterrissage simulé</p>
                     <p className="text-2xl font-bold text-primary mt-1">{formatCurrency(simResult.landingTotal)}</p>
                     <p className="text-xs text-muted-foreground mt-1">
                       {simResult.landingTotal > data.landingTotal ? "+" : ""}{formatCurrency(simResult.landingTotal - data.landingTotal)} vs actuel
@@ -328,13 +371,13 @@ function SimulationContent() {
                 </Card>
                 <Card className="border-0 shadow-sm">
                   <CardContent className="pt-6">
-                    <p className="text-sm text-muted-foreground">Devis pond\u00e9r\u00e9</p>
+                    <p className="text-sm text-muted-foreground">Devis pondéré</p>
                     <p className="text-2xl font-bold mt-1">{formatCurrency(simResult.quotationsWeightedTotal)}</p>
                   </CardContent>
                 </Card>
                 <Card className="border-0 shadow-sm">
                   <CardContent className="pt-6">
-                    <p className="text-sm text-muted-foreground">Opportunit\u00e9s pond\u00e9r\u00e9</p>
+                    <p className="text-sm text-muted-foreground">Opportunités pondéré</p>
                     <p className="text-2xl font-bold mt-1">{formatCurrency(simResult.opportunitiesWeightedTotal)}</p>
                   </CardContent>
                 </Card>
@@ -354,7 +397,7 @@ function SimulationContent() {
                       <Legend />
                       <Bar dataKey="commandes" name="Commandes" fill="#22c55e" stackId="a" radius={[0, 0, 0, 0]} />
                       <Bar dataKey="devis" name="Devis" fill="#7c3aed" stackId="a" radius={[0, 0, 0, 0]} />
-                      <Bar dataKey="opportunites" name="Opportunit\u00e9s" fill="#9333ea" stackId="a" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="opportunites" name="Opportunités" fill="#9333ea" stackId="a" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -372,9 +415,9 @@ function SimulationContent() {
             <Card className="border-0 shadow-sm">
               <CardContent className="flex flex-col items-center justify-center py-16 text-center">
                 <History className="h-12 w-12 text-muted-foreground/40 mb-4" />
-                <h3 className="text-lg font-medium">Aucune simulation sauvegard\u00e9e</h3>
+                <h3 className="text-lg font-medium">Aucune simulation sauvegardée</h3>
                 <p className="text-sm text-muted-foreground mt-1 max-w-md">
-                  Lancez une simulation puis cliquez sur "Sauvegarder" pour conserver vos sc\u00e9narios.
+                  Lancez une simulation puis cliquez sur "Sauvegarder" pour conserver vos scénarios.
                 </p>
               </CardContent>
             </Card>
@@ -415,12 +458,12 @@ function SimulationContent() {
                         <p className="text-xs text-muted-foreground">{sim.nbCommandes} cmd</p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">Devis pond\u00e9r\u00e9</p>
+                        <p className="text-xs text-muted-foreground">Devis pondéré</p>
                         <p className="text-sm font-semibold">{formatCurrency(parseFloat(sim.totalDevisPondere))}</p>
                         <p className="text-xs text-muted-foreground">{sim.nbDevis} devis (brut: {formatCurrency(parseFloat(sim.totalDevisBrut))})</p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">Opportunit\u00e9s pond\u00e9r\u00e9</p>
+                        <p className="text-xs text-muted-foreground">Opportunités pondéré</p>
                         <p className="text-sm font-semibold">{formatCurrency(parseFloat(sim.totalOpportunitePondere))}</p>
                         <p className="text-xs text-muted-foreground">{sim.nbOpportunites} opp. (brut: {formatCurrency(parseFloat(sim.totalOpportuniteBrut))})</p>
                       </div>
@@ -430,7 +473,7 @@ function SimulationContent() {
                     <div className="flex gap-2 mt-4 pt-4 border-t">
                       <Button size="sm" variant="outline" onClick={() => handleRestore(sim)}>
                         <Upload className="h-3.5 w-3.5 mr-1.5" />
-                        Restaurer les param\u00e8tres
+                        Restaurer les paramètres
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -443,7 +486,7 @@ function SimulationContent() {
                           <AlertDialogHeader>
                             <AlertDialogTitle>Supprimer cette simulation ?</AlertDialogTitle>
                             <AlertDialogDescription>
-                              La simulation "{sim.name}" sera d\u00e9finitivement supprim\u00e9e. Cette action est irr\u00e9versible.
+                              La simulation "{sim.name}" sera définitivement supprimée. Cette action est irréversible.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>

@@ -2,6 +2,31 @@
  * Service d'intégration API Nicoka
  * Récupère devis, commandes et opportunités avec rate limiting
  * Enrichit les données avec noms clients, projets et labels de statuts
+ *
+ * ─── RÈGLES DE CALCUL DE L'ATTERRISSAGE ───
+ *
+ * L'atterrissage prévisionnel du chiffre d'affaires est calculé selon les règles suivantes :
+ *
+ * 1. COMMANDES : Le CA des commandes correspond au montant des commandes dont la date
+ *    d'échéance (period_end ou date de commande) tombe dans la période sélectionnée.
+ *    Les commandes représentent du chiffre d'affaires certain (pondération = 100%).
+ *
+ * 2. DEVIS : Le CA des devis est réputé à 100% pour l'année/trimestre de la date de fin
+ *    du devis (period_end). La pondération est appliquée uniquement sur le statut du devis,
+ *    pas sur la date. Un devis "Signé" comptera à 100%, un devis "Envoyé" à X% selon la
+ *    table de pondération configurée par l'administrateur.
+ *
+ * 3. OPPORTUNITÉS : Le CA des opportunités est réputé à 100% pour l'année/trimestre de la
+ *    date de clôture (close_date) ou de fin de période (period_end). La pondération est
+ *    appliquée uniquement sur l'étape de vente (stage), pas sur la date.
+ *
+ * 4. DÉDOUBLONNAGE : Les opportunités ne sont comptées que si aucun devis ou commande
+ *    n'y est associé. Les devis ne sont comptés que s'ils n'ont pas de commande associée.
+ *    Cela évite de compter deux fois le même chiffre d'affaires.
+ *
+ * 5. MULTI-ANNÉES : L'utilisateur peut sélectionner n'importe quelle année (2026, 2027, 2028...)
+ *    et filtrer par trimestre (Q1, Q2, Q3, Q4) pour anticiper les revenus futurs.
+ *    Cela permet de commencer à calculer l'atterrissage 2027 dès le S2 2026.
  */
 
 const RATE_LIMIT_DELAY = 100; // ms entre chaque appel
@@ -142,7 +167,6 @@ interface NicokaCustomer {
   accountNumber: string;
 }
 
-// Cache clients en mémoire pour éviter de les recharger à chaque appel
 let _customersCache: Map<number, NicokaCustomer> | null = null;
 let _customersCacheTime = 0;
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
@@ -177,7 +201,6 @@ interface NicokaProject {
   customerid: number;
 }
 
-// Cache projets
 let _projectsCache: Map<number, NicokaProject> | null = null;
 let _projectsCacheTime = 0;
 
@@ -365,10 +388,55 @@ export async function fetchOpportunities(customersMap: Map<number, NicokaCustome
   });
 }
 
+// ─── Période helper ───
+
+export interface PeriodFilter {
+  year: number;
+  quarter?: number; // 1, 2, 3, 4 — undefined = année complète
+}
+
+/**
+ * Détermine si un élément tombe dans la période sélectionnée
+ * basé sur sa date d'échéance (period_end, close_date ou date)
+ *
+ * Logique :
+ * - On utilise period_end en priorité (date de fin de la prestation)
+ * - Sinon close_date (pour les opportunités)
+ * - Sinon date (date de création comme fallback)
+ * - L'élément est inclus si sa date d'échéance tombe dans l'année/trimestre sélectionné
+ */
+function getEndDate(item: { period_end?: string | null; close_date?: string | null; date?: string | null }): Date | null {
+  const dateStr = item.period_end || (item as any).close_date || item.date;
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function isInPeriod(endDate: Date | null, filter: PeriodFilter): boolean {
+  if (!endDate) return false;
+
+  const itemYear = endDate.getFullYear();
+  if (itemYear !== filter.year) return false;
+
+  if (filter.quarter) {
+    const itemMonth = endDate.getMonth(); // 0-indexed
+    const itemQuarter = Math.floor(itemMonth / 3) + 1;
+    return itemQuarter === filter.quarter;
+  }
+
+  return true; // Année complète
+}
+
 /**
  * Récupère toutes les données et calcule l'atterrissage
- * Logique de dédoublonnage : les opportunités ne sont comptées que si
- * aucun devis ou commande n'y est associé.
+ *
+ * Architecture multi-années :
+ * - Toutes les données sont récupérées depuis Nicoka (sans filtre de date côté API)
+ * - Le filtrage par année/trimestre est appliqué côté serveur sur la date d'échéance
+ * - Les commandes sont filtrées par leur period_end (date d'échéance)
+ * - Les devis sont filtrés par leur period_end (date de fin du devis)
+ * - Les opportunités sont filtrées par leur close_date ou period_end
+ * - Le dédoublonnage est appliqué APRÈS le filtrage par période
  */
 export interface FunnelData {
   quotations: NicokaQuotation[];
@@ -378,9 +446,10 @@ export interface FunnelData {
   allOrders: NicokaOrder[];
   uniqueOpportunities: NicokaOpportunity[];
   uniqueQuotations: NicokaQuotation[];
+  periodFilter: PeriodFilter;
 }
 
-export async function fetchFunnelData(year?: number): Promise<FunnelData> {
+export async function fetchFunnelData(periodFilter: PeriodFilter): Promise<FunnelData> {
   // Fetch reference data first (customers + projects)
   const [customersMap, projectsMap] = await Promise.all([
     fetchCustomers(),
@@ -394,37 +463,33 @@ export async function fetchFunnelData(year?: number): Promise<FunnelData> {
     fetchOpportunities(customersMap),
   ]);
 
-  // Filtrer par année en cours (commandes et devis)
-  const targetYear = year || new Date().getFullYear();
-  const filterByYear = (dateStr: string | null | undefined, periodStart: string | null | undefined, periodEnd: string | null | undefined): boolean => {
-    if (periodStart && periodEnd) {
-      const start = new Date(periodStart);
-      const end = new Date(periodEnd);
-      const yearStart = new Date(`${targetYear}-01-01`);
-      const yearEnd = new Date(`${targetYear}-12-31`);
-      return start <= yearEnd && end >= yearStart;
-    }
-    if (dateStr) {
-      const d = new Date(dateStr);
-      return d.getFullYear() === targetYear;
-    }
-    return true;
-  };
+  // Filtrer par période basé sur la date d'échéance
+  const filteredOrders = orders.filter((o) => {
+    const endDate = getEndDate({ period_end: o.period_end, date: o.date });
+    return isInPeriod(endDate, periodFilter);
+  });
 
-  const filteredOrders = orders.filter((o) => filterByYear(o.date, o.period_start, o.period_end));
-  const filteredQuotations = quotations.filter((q) => filterByYear(q.date, q.period_start, q.period_end));
+  const filteredQuotations = quotations.filter((q) => {
+    const endDate = getEndDate({ period_end: q.period_end, date: q.date });
+    return isInPeriod(endDate, periodFilter);
+  });
 
-  // Dédoublonnage : IDs de devis qui ont une commande
+  const filteredOpportunities = opportunities.filter((op) => {
+    const endDate = getEndDate({ period_end: op.period_end, close_date: op.close_date });
+    return isInPeriod(endDate, periodFilter);
+  });
+
+  // Dédoublonnage : IDs de devis qui ont une commande dans la même période
   const quotationIdsWithOrder = new Set(
     filteredOrders.filter((o) => o.quotationid).map((o) => o.quotationid!)
   );
 
-  // Dédoublonnage : IDs d'opportunités qui ont une commande
+  // Dédoublonnage : IDs d'opportunités qui ont une commande dans la même période
   const opportunityIdsWithOrder = new Set(
     filteredOrders.filter((o) => o.opid).map((o) => o.opid!)
   );
 
-  // IDs d'opportunités qui ont un devis (même sans commande)
+  // IDs d'opportunités qui ont un devis dans la même période (même sans commande)
   const opportunityIdsWithQuotation = new Set(
     filteredQuotations.filter((q) => q.opid).map((q) => q.opid!)
   );
@@ -433,18 +498,19 @@ export async function fetchFunnelData(year?: number): Promise<FunnelData> {
     (q) => !quotationIdsWithOrder.has(q.quotationid)
   );
 
-  const uniqueOpportunities = opportunities.filter(
+  const uniqueOpportunities = filteredOpportunities.filter(
     (op) => !opportunityIdsWithOrder.has(op.opid) && !opportunityIdsWithQuotation.has(op.opid)
   );
 
   return {
     quotations: filteredQuotations,
     orders: filteredOrders,
-    opportunities,
+    opportunities: filteredOpportunities,
     allQuotations: quotations,
     allOrders: orders,
     uniqueOpportunities,
     uniqueQuotations,
+    periodFilter,
   };
 }
 
@@ -501,3 +567,30 @@ export function calculateLanding(
     opportunityCount: uniqueOpportunities.length,
   };
 }
+
+/**
+ * Texte explicatif des règles de calcul — à afficher dans l'interface
+ */
+export const CALCULATION_RULES_TEXT = `
+## Règles de calcul de l'atterrissage
+
+L'atterrissage prévisionnel du chiffre d'affaires est calculé en agrégeant trois sources de données Nicoka, filtrées par la date d'échéance de chaque élément :
+
+### Commandes (CA certain)
+Le chiffre d'affaires des commandes est considéré comme **certain** (100%). Seules les commandes dont la date d'échéance (fin de période) tombe dans l'année et le trimestre sélectionnés sont comptabilisées.
+
+### Devis (CA pondéré par statut)
+Le montant des devis est **réputé à 100% pour l'année de la date de fin du devis**. La pondération est appliquée uniquement sur le statut du devis (ex: "Signé" = 100%, "Envoyé" = 50%, "Brouillon" = 10%). Les devis déjà transformés en commande sont exclus pour éviter le double comptage.
+
+### Opportunités (CA pondéré par étape)
+Le montant des opportunités est **réputé à 100% pour l'année de la date de clôture**. La pondération est appliquée uniquement sur l'étape de vente (ex: "Gagné" = 100%, "Négociation" = 60%, "Qualification" = 20%). Les opportunités ayant déjà un devis ou une commande sont exclues.
+
+### Dédoublonnage
+Pour éviter de compter deux fois le même chiffre d'affaires :
+- Un devis n'est compté que s'il n'a **pas de commande** associée
+- Une opportunité n'est comptée que s'il n'y a **ni devis ni commande** associés
+
+### Filtrage temporel
+- **Par année** : seuls les éléments dont la date d'échéance tombe dans l'année sélectionnée sont pris en compte
+- **Par trimestre** : affine le filtre au trimestre choisi (Q1 = jan-mar, Q2 = avr-jun, Q3 = jul-sep, Q4 = oct-déc)
+`.trim();

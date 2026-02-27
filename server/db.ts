@@ -185,7 +185,7 @@ export async function createSimulationScenario(data: {
 
 // ─── Nicoka Cache ───
 
-export async function getCachedData(dataType: "quotations" | "orders" | "opportunities" | "customers" | "projects" | "funnel_snapshot", year: number) {
+export async function getCachedData(dataType: string, year: number) {
   const db = await getDb();
   if (!db) return null;
   const result = await db.select().from(nicokaCache)
@@ -194,7 +194,7 @@ export async function getCachedData(dataType: "quotations" | "orders" | "opportu
   return result.length > 0 ? result[0] : null;
 }
 
-export async function setCachedData(dataType: "quotations" | "orders" | "opportunities" | "customers" | "projects" | "funnel_snapshot", year: number, data: any) {
+export async function setCachedData(dataType: string, year: number, data: any) {
   const db = await getDb();
   if (!db) return;
   await db.delete(nicokaCache).where(and(eq(nicokaCache.dataType, dataType), eq(nicokaCache.year, year)));

@@ -1,0 +1,1 @@
+ALTER TABLE `nicoka_cache` MODIFY COLUMN `dataType` varchar(64) NOT NULL;

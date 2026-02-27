@@ -134,3 +134,16 @@
 - [x] Liste des simulations sauvegardées avec possibilité de restaurer les paramètres
 - [x] Affichage des résultats sauvegardés pour comparaison
 - [x] Tests vitest pour les routes de simulation
+
+## Architecture multi-années et trimestres
+- [x] Sélecteur d'année dans le dashboard et la page Atterrissage (2025 à 2029)
+- [x] Filtrage par trimestre (Q1, Q2, Q3, Q4, Année complète)
+- [x] Logique de calcul : CA commandes = montant des commandes à échéance de l'année/trimestre sélectionné
+- [x] Logique de calcul : CA devis = montant réputé 100% pour l'année de la date de fin du devis
+- [x] Logique de calcul : CA opportunités = montant réputé 100% pour l'année de la date de fin de l'opportunité
+- [x] Pondération appliquée uniquement sur le statut, pas sur la date
+- [x] Texte explicatif des règles de calcul visible dans l'interface
+- [x] Cache par année/trimestre pour performance
+- [x] Dédoublonnage maintenu (opportunités sans devis/commande associés)
+- [x] Support multi-années dans la page Simulation
+- [x] Correction encodage unicode dans tous les fichiers frontend

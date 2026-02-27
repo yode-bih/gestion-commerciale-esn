@@ -2,10 +2,11 @@ import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, RefreshCw, TrendingUp, FileText, ShoppingCart, Lightbulb, Clock } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Loader2, RefreshCw, TrendingUp, FileText, ShoppingCart, Lightbulb, Clock, Info, ChevronDown, ChevronUp } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend } from "recharts";
 import { toast } from "sonner";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(value);
@@ -22,6 +23,14 @@ function formatDate(date: string | Date | null | undefined): string {
   return new Date(date).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+const QUARTER_LABELS: Record<string, string> = {
+  all: "Année complète",
+  "1": "Q1 (Jan–Mar)",
+  "2": "Q2 (Avr–Jun)",
+  "3": "Q3 (Jul–Sep)",
+  "4": "Q4 (Oct–Déc)",
+};
+
 // ─── Composant Funnel en entonnoir SVG ───
 
 interface FunnelStage {
@@ -30,7 +39,6 @@ interface FunnelStage {
   weighted: number;
   count: number;
   color: string;
-  textColor: string;
 }
 
 function FunnelChart({ stages }: { stages: FunnelStage[] }) {
@@ -59,7 +67,6 @@ function FunnelChart({ stages }: { stages: FunnelStage[] }) {
             <g key={stage.label}>
               <path d={path} fill={stage.color} opacity={0.85} className="transition-opacity hover:opacity-100" />
               <path d={path} fill="none" stroke="white" strokeWidth={1.5} />
-              {/* Label */}
               <text x={chartWidth / 2} y={y + stageHeight / 2 - 10} textAnchor="middle" className="text-[13px] font-semibold" fill="white">
                 {stage.label}
               </text>
@@ -78,7 +85,17 @@ function FunnelChart({ stages }: { stages: FunnelStage[] }) {
 }
 
 function DashboardContent() {
-  const { data, isLoading, error } = trpc.funnel.getData.useQuery(undefined, { staleTime: 5 * 60 * 1000 });
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [selectedQuarter, setSelectedQuarter] = useState<string>("all");
+  const [showRules, setShowRules] = useState(false);
+
+  const quarterParam = selectedQuarter === "all" ? undefined : parseInt(selectedQuarter);
+
+  const { data, isLoading, error } = trpc.funnel.getData.useQuery(
+    { year: selectedYear, quarter: quarterParam },
+    { staleTime: 5 * 60 * 1000 }
+  );
   const utils = trpc.useUtils();
   const sync = trpc.funnel.sync.useMutation({
     onSuccess: () => {
@@ -87,6 +104,11 @@ function DashboardContent() {
     },
     onError: (err: any) => toast.error(err.message),
   });
+
+  const periodLabel = useMemo(() => {
+    if (selectedQuarter === "all") return `${selectedYear}`;
+    return `${QUARTER_LABELS[selectedQuarter]} ${selectedYear}`;
+  }, [selectedYear, selectedQuarter]);
 
   const funnelStages = useMemo<FunnelStage[]>(() => {
     if (!data) return [];
@@ -97,7 +119,6 @@ function DashboardContent() {
         weighted: data.opportunitiesWeightedTotal || 0,
         count: data.opportunityCount || 0,
         color: "#8b5cf6",
-        textColor: "#7c3aed",
       },
       {
         label: "Devis",
@@ -105,7 +126,6 @@ function DashboardContent() {
         weighted: data.quotationsWeightedTotal || 0,
         count: data.quotationCount || 0,
         color: "#6366f1",
-        textColor: "#4f46e5",
       },
       {
         label: "Commandes",
@@ -113,7 +133,6 @@ function DashboardContent() {
         weighted: data.ordersTotal || 0,
         count: data.orderCount || 0,
         color: "#22c55e",
-        textColor: "#16a34a",
       },
     ];
   }, [data]);
@@ -126,6 +145,14 @@ function DashboardContent() {
       { name: "Opportunités (pondéré)", value: data.opportunitiesWeightedTotal || 0, fill: "#8b5cf6" },
     ];
   }, [data]);
+
+  const years = useMemo(() => {
+    const result = [];
+    for (let y = currentYear - 1; y <= currentYear + 3; y++) {
+      result.push(y);
+    }
+    return result;
+  }, [currentYear]);
 
   if (isLoading) {
     return (
@@ -160,13 +187,40 @@ function DashboardContent() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      {/* Header avec sélecteurs */}
+      <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Atterrissage prévisionnel CA {new Date().getFullYear()}</p>
+          <p className="text-muted-foreground mt-1">Atterrissage prévisionnel CA {periodLabel}</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Sélecteur année */}
+          <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(parseInt(v))}>
+            <SelectTrigger className="w-[120px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {years.map((y) => (
+                <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Sélecteur trimestre */}
+          <Select value={selectedQuarter} onValueChange={setSelectedQuarter}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Année complète</SelectItem>
+              <SelectItem value="1">Q1 (Jan–Mar)</SelectItem>
+              <SelectItem value="2">Q2 (Avr–Jun)</SelectItem>
+              <SelectItem value="3">Q3 (Jul–Sep)</SelectItem>
+              <SelectItem value="4">Q4 (Oct–Déc)</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Sync info */}
           {data.lastSync && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Clock className="h-3.5 w-3.5" />
@@ -174,7 +228,7 @@ function DashboardContent() {
               {data.fromCache && <span className="px-1.5 py-0.5 rounded bg-muted text-[10px]">cache</span>}
             </div>
           )}
-          <Button variant="outline" size="sm" onClick={() => sync.mutate()} disabled={sync.isPending}>
+          <Button variant="outline" size="sm" onClick={() => sync.mutate({ year: selectedYear, quarter: quarterParam })} disabled={sync.isPending}>
             {sync.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
             Synchroniser
           </Button>
@@ -235,7 +289,7 @@ function DashboardContent() {
         <Card className="border-0 shadow-sm">
           <CardHeader>
             <CardTitle className="text-base font-medium">Entonnoir commercial</CardTitle>
-            <p className="text-sm text-muted-foreground">Progression Opportunités → Devis → Commandes</p>
+            <p className="text-sm text-muted-foreground">Progression Opportunités → Devis → Commandes — {periodLabel}</p>
           </CardHeader>
           <CardContent>
             <FunnelChart stages={funnelStages} />
@@ -266,14 +320,14 @@ function DashboardContent() {
       <Card className="border-0 shadow-sm">
         <CardHeader>
           <CardTitle className="text-base font-medium">Réel vs Atterrissage</CardTitle>
-          <p className="text-sm text-muted-foreground">Comparaison entre le chiffre réel (commandes) et l'atterrissage prévisionnel</p>
+          <p className="text-sm text-muted-foreground">Comparaison entre le chiffre réel (commandes) et l'atterrissage prévisionnel — {periodLabel}</p>
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart
               data={[
                 {
-                  name: "CA " + new Date().getFullYear(),
+                  name: `CA ${periodLabel}`,
                   Commandes: data.ordersTotal || 0,
                   "Devis pondérés": data.quotationsWeightedTotal || 0,
                   "Opportunités pondérées": data.opportunitiesWeightedTotal || 0,
@@ -284,7 +338,7 @@ function DashboardContent() {
             >
               <CartesianGrid strokeDasharray="3 3" horizontal={false} />
               <XAxis type="number" tickFormatter={(v: number) => formatCompact(v)} />
-              <YAxis type="category" dataKey="name" width={80} />
+              <YAxis type="category" dataKey="name" width={100} />
               <Tooltip formatter={(value: number) => formatCurrency(value)} contentStyle={{ borderRadius: "8px", border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }} />
               <Bar dataKey="Commandes" stackId="a" fill="#22c55e" radius={[0, 0, 0, 0]} />
               <Bar dataKey="Devis pondérés" stackId="a" fill="#6366f1" />
@@ -316,6 +370,44 @@ function DashboardContent() {
             </div>
           </div>
         </CardContent>
+      </Card>
+
+      {/* Règles de calcul */}
+      <Card className="border-0 shadow-sm">
+        <CardHeader className="cursor-pointer" onClick={() => setShowRules(!showRules)}>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base font-medium flex items-center gap-2">
+              <Info className="h-4 w-4" /> Règles de calcul de l'atterrissage
+            </CardTitle>
+            {showRules ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </div>
+        </CardHeader>
+        {showRules && (
+          <CardContent className="prose prose-sm max-w-none text-muted-foreground">
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-sm font-semibold text-foreground mb-1">Commandes (CA certain)</h4>
+                <p className="text-sm">Le chiffre d'affaires des commandes est considéré comme <strong>certain (100%)</strong>. Seules les commandes dont la date d'échéance (fin de période) tombe dans l'année et le trimestre sélectionnés sont comptabilisées.</p>
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold text-foreground mb-1">Devis (CA pondéré par statut)</h4>
+                <p className="text-sm">Le montant des devis est <strong>réputé à 100% pour l'année de la date de fin du devis</strong>. La pondération est appliquée uniquement sur le statut du devis (ex: "Signé" = 100%, "Envoyé" = 50%). Les devis déjà transformés en commande sont exclus pour éviter le double comptage.</p>
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold text-foreground mb-1">Opportunités (CA pondéré par étape)</h4>
+                <p className="text-sm">Le montant des opportunités est <strong>réputé à 100% pour l'année de la date de clôture</strong>. La pondération est appliquée uniquement sur l'étape de vente (ex: "Gagné" = 100%, "Négociation" = 60%). Les opportunités ayant déjà un devis ou une commande sont exclues.</p>
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold text-foreground mb-1">Dédoublonnage</h4>
+                <p className="text-sm">Un devis n'est compté que s'il n'a <strong>pas de commande</strong> associée. Une opportunité n'est comptée que s'il n'y a <strong>ni devis ni commande</strong> associés.</p>
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold text-foreground mb-1">Filtrage temporel</h4>
+                <p className="text-sm"><strong>Par année</strong> : seuls les éléments dont la date d'échéance tombe dans l'année sélectionnée sont pris en compte. <strong>Par trimestre</strong> : affine le filtre au trimestre choisi (Q1 = jan–mar, Q2 = avr–jun, Q3 = jul–sep, Q4 = oct–déc).</p>
+              </div>
+            </div>
+          </CardContent>
+        )}
       </Card>
     </div>
   );

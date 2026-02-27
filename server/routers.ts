@@ -13,16 +13,18 @@ import { sendEmail } from "./emailService";
 import {
   fetchFunnelData, calculateLanding,
   QUOTATION_STATUS_MAP, ORDER_STATUS_MAP, OPPORTUNITY_STAGE_MAP, OPPORTUNITY_TYPE_MAP,
+  CALCULATION_RULES_TEXT,
 } from "./nicokaService";
-import type { FunnelData } from "./nicokaService";
+import type { FunnelData, PeriodFilter } from "./nicokaService";
 
 // ─── Cache helper : serve from DB, fetch from Nicoka in background ───
 
 const CACHE_MAX_AGE = 30 * 60 * 1000; // 30 minutes
 
-async function getFunnelDataCached(year: number): Promise<{ data: any; lastSync: Date | null; fromCache: boolean }> {
-  // Try cache first
-  const cached = await db.getCachedData("funnel_snapshot", year);
+async function getFunnelDataCached(filter: PeriodFilter): Promise<{ data: any; lastSync: Date | null; fromCache: boolean }> {
+  // Cache key includes quarter for granular caching
+  const cacheKey = filter.quarter ? `funnel_snapshot_q${filter.quarter}` : "funnel_snapshot";
+  const cached = await db.getCachedData(cacheKey, filter.year);
   if (cached && cached.data) {
     const age = Date.now() - new Date(cached.syncedAt).getTime();
     if (age < CACHE_MAX_AGE) {
@@ -31,12 +33,12 @@ async function getFunnelDataCached(year: number): Promise<{ data: any; lastSync:
   }
 
   // Cache miss or stale: fetch from Nicoka
-  const result = await fetchAndCacheFunnelData(year);
+  const result = await fetchAndCacheFunnelData(filter);
   return { data: result, lastSync: new Date(), fromCache: false };
 }
 
-async function fetchAndCacheFunnelData(year: number) {
-  const funnelData = await fetchFunnelData(year);
+async function fetchAndCacheFunnelData(filter: PeriodFilter) {
+  const funnelData = await fetchFunnelData(filter);
   const qWeights = await db.getQuotationWeights();
   const oWeights = await db.getOpportunityWeights();
   const quotationWeightsMap: Record<string, number> = {};
@@ -55,8 +57,9 @@ async function fetchAndCacheFunnelData(year: number) {
   };
 
   // Save to cache
+  const cacheKey = filter.quarter ? `funnel_snapshot_q${filter.quarter}` : "funnel_snapshot";
   try {
-    await db.setCachedData("funnel_snapshot", year, result);
+    await db.setCachedData(cacheKey, filter.year, result);
   } catch (e) {
     console.warn("[Cache] Failed to save funnel snapshot:", e);
   }
@@ -174,40 +177,56 @@ export const appRouter = router({
   funnel: router({
     // getData sert les données depuis le cache DB — chargement instantané
     getData: protectedProcedure
-      .input(z.object({ year: z.number().optional() }).optional())
+      .input(z.object({ year: z.number().optional(), quarter: z.number().min(1).max(4).optional() }).optional())
       .query(async ({ input }) => {
-        const year = input?.year || new Date().getFullYear();
-        const { data, lastSync, fromCache } = await getFunnelDataCached(year);
-        return { ...data, lastSync, fromCache };
+        const filter: PeriodFilter = {
+          year: input?.year || new Date().getFullYear(),
+          quarter: input?.quarter,
+        };
+        const { data, lastSync, fromCache } = await getFunnelDataCached(filter);
+        return { ...data, lastSync, fromCache, periodFilter: filter };
       }),
 
     // sync force un rechargement depuis l'API Nicoka et met à jour le cache
     sync: protectedProcedure
-      .input(z.object({ year: z.number().optional() }).optional())
+      .input(z.object({ year: z.number().optional(), quarter: z.number().min(1).max(4).optional() }).optional())
       .mutation(async ({ input }) => {
-        const year = input?.year || new Date().getFullYear();
-        const result = await fetchAndCacheFunnelData(year);
-        return { ...result, lastSync: new Date(), fromCache: false };
+        const filter: PeriodFilter = {
+          year: input?.year || new Date().getFullYear(),
+          quarter: input?.quarter,
+        };
+        const result = await fetchAndCacheFunnelData(filter);
+        return { ...result, lastSync: new Date(), fromCache: false, periodFilter: filter };
       }),
 
     // lastSync retourne la date du dernier sync
     lastSync: protectedProcedure
-      .input(z.object({ year: z.number().optional() }).optional())
+      .input(z.object({ year: z.number().optional(), quarter: z.number().min(1).max(4).optional() }).optional())
       .query(async ({ input }) => {
         const year = input?.year || new Date().getFullYear();
+        const cacheKey = input?.quarter ? `funnel_snapshot_q${input.quarter}` : "funnel_snapshot";
         const lastSync = await db.getLastSyncDate(year);
         return { lastSync };
       }),
+
+    // Texte explicatif des règles de calcul
+    calculationRules: publicProcedure.query(() => {
+      return { text: CALCULATION_RULES_TEXT };
+    }),
 
     simulate: protectedProcedure
       .input(z.object({
         quotationWeights: z.record(z.string(), z.number()),
         opportunityWeights: z.record(z.string(), z.number()),
         year: z.number().optional(),
+        quarter: z.number().min(1).max(4).optional(),
       }))
       .mutation(async ({ input }) => {
-        const year = input.year || new Date().getFullYear();
-        const funnelData = await fetchFunnelData(year);
+        const filter: PeriodFilter = {
+          year: input.year || new Date().getFullYear(),
+          quarter: input.quarter,
+        };
+        const funnelData = await fetchFunnelData(filter);
         return calculateLanding(funnelData, input.quotationWeights, input.opportunityWeights);
       }),
   }),
@@ -326,7 +345,7 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const deleted = await db.deleteSavedSimulation(input.id, ctx.user.id);
         if (!deleted) {
-          throw new Error("Simulation introuvable ou acc\u00e8s refus\u00e9.");
+          throw new Error("Simulation introuvable ou accès refusé.");
         }
         return { success: true };
       }),

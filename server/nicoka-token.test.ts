@@ -27,5 +27,5 @@ describe("Nicoka API Token validation", () => {
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data).toBeDefined();
-  });
+  }, 15000);
 });
